@@ -20,6 +20,15 @@ pub async fn run_server(state: AppState, mut stop_rx: watch::Receiver<bool>) -> 
     let app = build_router(state.clone());
 
     state.logs.info(format!("binding HTTP server on {addr}"));
+    let provenance = state.bind_provenance.read().clone();
+    state.logs.info(format!(
+        "bind address {} · host from {} · port from {}",
+        addr, provenance.host_source, provenance.port_source
+    ));
+    println!(
+        "bind {} (host={}, port={})",
+        addr, provenance.host_source, provenance.port_source
+    );
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("failed to bind {addr}"))?;

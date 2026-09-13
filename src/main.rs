@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     init_tracing();
 
-    let (config, config_path) = match &cli.config {
+    let (config, config_path, bind_provenance) = match &cli.config {
         Some(path) => {
             let mut cfg = if path.exists() {
                 Config::load(path)?
@@ -64,13 +64,13 @@ async fn main() -> Result<()> {
                 cfg.save(path)?;
                 cfg
             };
-            cfg.apply_env_overrides();
-            (cfg, path.clone())
+            let report = cfg.apply_env_overrides();
+            (cfg, path.clone(), report)
         }
         None => Config::load_or_create()?,
     };
 
-    let state = AppState::new(config, config_path.clone());
+    let state = AppState::new(config, config_path.clone(), bind_provenance);
 
     match cli.command.unwrap_or(Commands::Tui {
         no_autostart: false,
@@ -121,17 +121,24 @@ async fn run_doctor(state: &AppState, config_path: &std::path::Path, full: bool)
 
     println!("OK  config={}", config_path.display());
     println!("OK  listen={}", cfg.listen_addr());
+    let provenance = state.bind_provenance.read().clone();
+    println!(
+        "OK  bind_source host={} port={}",
+        provenance.host_source, provenance.port_source
+    );
     println!("OK  v1={}", cfg.v1_url());
     println!("OK  model={}", cfg.cursor.default_model);
     println!("OK  mode={}", cfg.cursor.mode);
     println!("OK  profile={}", cfg.cursor.profile);
     println!(
-        "OK  json_mode={} flatten={} timeout={}s concurrency={} reject_when_busy={}",
+        "OK  json_mode={} flatten={} timeout={}s concurrency={} reject_when_busy={} queue_wait_secs={} available={}",
         cfg.cursor.json_mode,
         cfg.cursor.message_flatten_mode,
         cfg.server.request_timeout_secs,
         cfg.server.max_concurrency,
-        cfg.server.reject_when_busy
+        cfg.server.reject_when_busy,
+        cfg.server.queue_wait_secs,
+        state.backend.available_permits()
     );
 
     if cfg.auth.require_auth && !cfg.auth.api_key.is_empty() {

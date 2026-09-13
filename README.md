@@ -260,8 +260,8 @@ kiro-api
 | Config | `↑/↓` select · `Enter` edit · `p` cycle profile · `j` json mode · `w` force · `k` trust |
 | Logs | `↑/↓` scroll · `c` clear |
 | Usage | token estimates + recent requests · `x` reset |
-| Agent | interactive `kiro-cli` chat (separate from `/v1`) · `Shift+R` restart |
 | Help | quick client notes + compatibility |
+| Agent | interactive `kiro-cli` chat (separate from `/v1`) · `Shift+R` restart |
 | CLI | generic shell PTY · `Shift+R` restart |
 
 `Tab` / `1–7` switch tabs · on Agent/CLI use `F1–F7` or `Ctrl+←/→` · `q` / `Esc` quit · `Ctrl+Q` always works
@@ -320,9 +320,9 @@ Important fields:
 | `server.host` / `port` | `127.0.0.1` / `8788` | Bind locally |
 | `server.request_timeout_secs` | `600` | Per-request CLI timeout |
 | `server.max_concurrency` | `2` | Max parallel `kiro-cli` processes |
-| `server.reject_when_busy` | `true` | Return HTTP 429 when slots are full |
-| `server.queue_wait_secs` | `0` | Optional wait before 429 |
-| `cursor.profile` | `chat` | Preset: `chat`, `json_api`, `long_running` |
+| `server.reject_when_busy` | `false` | When `true`, return HTTP 429 when slots are full (default queues) |
+| `server.queue_wait_secs` | `0` | Max wait for a slot when `reject_when_busy=true` (`0` = try once). When `reject_when_busy=false`, wait indefinitely |
+| `cursor.profile` | `chat` | Preset: `chat`, `json_api`, `long_running` (`long_running` → timeout 900s, concurrency 1, **queue** not 429) |
 | `cursor.mode` | `ask` | Chat-safe default |
 | `cursor.trust` | `true` | Maps to `--trust-tools=` (empty) unless `force` |
 | `cursor.force` | `false` | When true, pass `--trust-all-tools` |
@@ -336,18 +336,26 @@ Important fields:
 
 ### Environment overrides
 
+Product-specific names only. Shared `BRIDGE_*` vars are **ignored** so a leftover `BRIDGE_PORT` from Cursor-API (or vice versa) cannot silently steal the bind address.
+
 | Variable | Effect |
 |----------|--------|
-| `BRIDGE_HOST` | Override bind host |
-| `BRIDGE_PORT` | Override port (default **8788**) |
-| `BRIDGE_API_KEY` | Set bridge auth key |
-| `BRIDGE_TIMEOUT_SECS` | Override request timeout |
-| `BRIDGE_JSON_MODE` | `true`/`1` enables JSON mode |
-| `BRIDGE_DEFAULT_MODEL` | Override default model |
-| `BRIDGE_MAX_CONTEXT_TOKENS` | Override context budget |
-| `BRIDGE_TRUNCATE_OVER_CONTEXT` | `true`/`1` truncates oversized prompts |
+| `KIRO_API_HOST` | Override bind host |
+| `KIRO_API_PORT` | Override port (default **8788**) |
+| `KIRO_API_AUTH_KEY` | Set bridge HTTP auth key (`Authorization: Bearer …`) |
+| `KIRO_API_TIMEOUT_SECS` | Override request timeout |
+| `KIRO_API_JSON_MODE` | `true`/`1` enables JSON mode |
+| `KIRO_API_DEFAULT_MODEL` | Override default model |
+| `KIRO_API_MAX_CONTEXT_TOKENS` | Override context budget |
+| `KIRO_API_TRUNCATE_OVER_CONTEXT` | `true`/`1` truncates oversized prompts |
+| `KIRO_API_MAX_CONCURRENCY` | Override max parallel CLI jobs |
+| `KIRO_API_REJECT_WHEN_BUSY` | `true`/`1` → HTTP 429 when full; default queues |
+| `KIRO_API_QUEUE_WAIT_SECS` | Wait budget when rejecting when busy |
 | `KIRO_API_KEY` | Forwarded to Kiro CLI |
-| `CURSOR_WORKSPACE` | Override workspace path |
+| `KIRO_API_WORKSPACE` | Override workspace path |
+| `CURSOR_WORKSPACE` | Legacy workspace override (still accepted) |
+
+On startup the server logs the effective bind address and whether host/port came from `config` or `env:KIRO_API_*`. `/health` also reports `available_concurrency`, `bind_host_source`, and `bind_port_source`.
 
 ## How it works
 
@@ -357,8 +365,8 @@ Important fields:
 - `response_format: { "type": "json_object" }` triggers JSON extraction (strips markdown fences)
 - Streaming sends a final SSE chunk with `usage` before `[DONE]`
 - Send `X-Request-ID` to correlate requests in logs and response headers
-- HTTP **429** when `max_concurrency` slots are full (`reject_when_busy=true`)
-- Client disconnect cancels the underlying CLI process
+- HTTP **429** only when `reject_when_busy=true` and slots are full (default **queues** instead)
+- Client disconnect / timeout kills the CLI process **tree** (Windows: `taskkill /T`) so semaphore permits cannot stick
 - Token totals are **estimates** (`chars/4`) unless Kiro exposes billing usage later
 - Built-in ingest adapters normalize common request shapes into one runner
 
@@ -372,7 +380,7 @@ Important fields:
 | `response_format` JSON | Yes |
 | `X-Request-ID` | Yes |
 | Final stream `usage` chunk | Yes |
-| HTTP 429 when busy | Yes |
+| HTTP 429 when busy | Optional (`reject_when_busy=true`; default queues) |
 | `temperature` / `max_tokens` | Ignored (CLI has no equivalent) |
 | Tool / function calling | No |
 

@@ -35,7 +35,7 @@ pub fn help_lines() -> Vec<Line<'static>> {
     lines.push(Line::from(""));
     lines.push(Line::from("Profiles: chat · json_api · long_running"));
     lines.push(Line::from(
-        "Env: BRIDGE_HOST BRIDGE_PORT BRIDGE_API_KEY BRIDGE_TIMEOUT_SECS BRIDGE_JSON_MODE BRIDGE_DEFAULT_MODEL BRIDGE_MAX_CONTEXT_TOKENS KIRO_API_KEY CURSOR_WORKSPACE",
+        "Env: KIRO_API_HOST KIRO_API_PORT KIRO_API_AUTH_KEY KIRO_API_TIMEOUT_SECS KIRO_API_JSON_MODE KIRO_API_DEFAULT_MODEL KIRO_API_MAX_CONTEXT_TOKENS KIRO_API_KEY KIRO_API_WORKSPACE (BRIDGE_* ignored — use KIRO_API_*)",
     ));
     lines.push(Line::from(""));
 
@@ -61,7 +61,7 @@ pub fn help_lines() -> Vec<Line<'static>> {
         Style::default().add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(
-        "  Tabs: Dashboard · Config · Logs · Usage · Agent · Help · CLI",
+        "  Tabs: Dashboard · Config · Logs · Usage · Help · Agent · CLI",
     ));
     lines.push(Line::from(
         "  1–7 / Tab     switch pages (on Agent/CLI: Ctrl+← / Ctrl+→ or F1–F7)",

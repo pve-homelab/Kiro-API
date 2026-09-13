@@ -132,6 +132,15 @@ impl CursorBackend {
         resolve_agent_launch(&cfg.binary)
     }
 
+    /// Remaining semaphore permits (slots free for new /v1 jobs).
+    pub fn available_permits(&self) -> usize {
+        self.semaphore.available_permits()
+    }
+
+    pub fn max_concurrency(&self) -> usize {
+        self.policy.read().max_concurrency
+    }
+
     async fn acquire_permit(&self) -> Result<OwnedSemaphorePermit, BusyError> {
         let policy = *self.policy.read();
         if policy.reject_when_busy {
@@ -190,11 +199,20 @@ impl CursorBackend {
                 .map_err(CompleteError::Other)?;
         }
 
-        let output = timeout(Duration::from_secs(timeout_secs), child.wait_with_output())
-            .await
-            .context("kiro-cli timed out")?
-            .context("wait for kiro-cli")
-            .map_err(CompleteError::Other)?;
+        // Capture pid before wait_with_output moves the Child — needed to kill the
+        // Windows process tree if the timeout cancels the wait future.
+        let pid = child.id();
+        let output = match timeout(Duration::from_secs(timeout_secs), child.wait_with_output()).await
+        {
+            Ok(Ok(output)) => output,
+            Ok(Err(err)) => {
+                return Err(CompleteError::Other(anyhow!("wait for kiro-cli: {err}")));
+            }
+            Err(_) => {
+                kill_process_tree(pid).await;
+                return Err(CompleteError::Other(anyhow!("kiro-cli timed out")));
+            }
+        };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -390,7 +408,59 @@ fn build_command(
     }
 
     cmd.kill_on_drop(true);
+    // On Windows, put the CLI in a new process group so we can kill the whole tree
+    // (kiro-cli often spawns node / helper children that would otherwise leak permits).
+    #[cfg(windows)]
+    {
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    }
     Ok(cmd)
+}
+
+/// Kill a child and any descendants. Critical on Windows where `Child::kill` only
+/// signals the root process and orphans can hold work (and semaphore permits) forever.
+async fn kill_child_tree(child: &mut Child) {
+    let pid = child.id();
+    kill_process_tree(pid).await;
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+async fn kill_process_tree(pid: Option<u32>) {
+    let Some(pid) = pid else {
+        return;
+    };
+    #[cfg(windows)]
+    {
+        let mut kill = Command::new("taskkill");
+        kill.args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let _ = kill.status().await;
+    }
+    #[cfg(unix)]
+    {
+        // Best-effort: signal the process group leader if the CLI forked helpers.
+        let mut kill = Command::new("kill");
+        kill.args(["-KILL", &format!("-{pid}")])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if kill.status().await.is_err() {
+            let mut kill = Command::new("kill");
+            kill.args(["-KILL", &pid.to_string()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let _ = kill.status().await;
+        }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = pid;
+    }
 }
 
 async fn stream_child(
@@ -412,13 +482,13 @@ async fn stream_child(
         let mut stderr_done = false;
         loop {
             if *cancel_rx.borrow() {
-                let _ = child.kill().await;
+                kill_child_tree(&mut child).await;
                 bail!("client disconnected");
             }
             tokio::select! {
                 changed = cancel_rx.changed() => {
                     if changed.is_ok() && *cancel_rx.borrow() {
-                        let _ = child.kill().await;
+                        kill_child_tree(&mut child).await;
                         bail!("client disconnected");
                     }
                 }
@@ -431,7 +501,7 @@ async fn stream_child(
                             match handle_stream_line(&line, &mut assembled, &mut session_id, &mut duration_ms, &mut saw_result) {
                                 Ok(Some(delta)) => {
                                     if tx.send(StreamEvent::Delta(delta)).await.is_err() {
-                                        let _ = child.kill().await;
+                                        kill_child_tree(&mut child).await;
                                         bail!("client disconnected");
                                     }
                                 }
@@ -464,7 +534,7 @@ async fn stream_child(
         Ok(Ok(())) => {}
         Ok(Err(err)) => return Err(err),
         Err(_) => {
-            let _ = child.kill().await;
+            kill_child_tree(&mut child).await;
             bail!("cursor agent stream timed out");
         }
     }

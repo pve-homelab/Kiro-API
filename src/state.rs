@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, EnvOverrideReport};
 use crate::cursor::CursorBackend;
 use crate::log_buffer::LogBuffer;
 use crate::usage::UsageTracker;
@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 pub struct AppState {
     pub config: Arc<RwLock<Config>>,
     pub config_path: Arc<RwLock<std::path::PathBuf>>,
+    pub bind_provenance: Arc<RwLock<EnvOverrideReport>>,
     pub logs: LogBuffer,
     pub usage: UsageTracker,
     pub backend: CursorBackend,
@@ -26,7 +27,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(config: Config, config_path: std::path::PathBuf) -> Self {
+    pub fn new(config: Config, config_path: std::path::PathBuf, bind_provenance: EnvOverrideReport) -> Self {
         let backend = CursorBackend::new(
             config.cursor.clone(),
             config.server.max_concurrency,
@@ -37,6 +38,7 @@ impl AppState {
         Self {
             config: Arc::new(RwLock::new(config)),
             config_path: Arc::new(RwLock::new(config_path)),
+            bind_provenance: Arc::new(RwLock::new(bind_provenance)),
             logs,
             usage: UsageTracker::new(200),
             backend,

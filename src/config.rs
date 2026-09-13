@@ -103,7 +103,8 @@ impl Default for ServerConfig {
             port: 8788,
             max_concurrency: 2,
             request_timeout_secs: 600,
-            reject_when_busy: true,
+            // Queue by default so batched clients are not 429'd while one job runs.
+            reject_when_busy: false,
             queue_wait_secs: 0,
         }
     }
@@ -174,12 +175,12 @@ impl Config {
         Ok(path)
     }
 
-    pub fn load_or_create() -> Result<(Self, PathBuf)> {
+    pub fn load_or_create() -> Result<(Self, PathBuf, EnvOverrideReport)> {
         let path = Self::default_path()?;
         if path.exists() {
             let mut cfg = Self::load(&path)?;
-            cfg.apply_env_overrides();
-            Ok((cfg, path))
+            let report = cfg.apply_env_overrides();
+            Ok((cfg, path, report))
         } else {
             let mut cfg = Self::default();
             if cfg.auth.generate_api_key_on_first_run {
@@ -187,9 +188,9 @@ impl Config {
                 cfg.auth.require_auth = true;
             }
             cfg.apply_profile();
-            cfg.apply_env_overrides();
+            let report = cfg.apply_env_overrides();
             cfg.save(&path)?;
-            Ok((cfg, path))
+            Ok((cfg, path, report))
         }
     }
 
@@ -240,6 +241,9 @@ impl Config {
             "long_running" | "long-running" | "long" => {
                 self.server.request_timeout_secs = 900;
                 self.server.max_concurrency = 1;
+                // Queue instead of immediate 429 — batched overnight clients need this.
+                self.server.reject_when_busy = false;
+                self.server.queue_wait_secs = 0;
                 self.cursor.mode = "ask".into();
                 self.cursor.force = false;
             }
@@ -254,56 +258,128 @@ impl Config {
         self.apply_profile();
     }
 
-    pub fn apply_env_overrides(&mut self) {
-        if let Ok(host) = std::env::var("BRIDGE_HOST") {
-            if !host.is_empty() {
-                self.server.host = host;
-            }
+    /// Apply product-specific `KIRO_API_*` env overrides.
+    ///
+    /// Shared `BRIDGE_*` names are **not** applied (they collide when Cursor-API and
+    /// Kiro-API run on the same machine). A leftover `BRIDGE_PORT=8788` must not
+    /// silently steal Cursor-API's bind, and vice versa.
+    pub fn apply_env_overrides(&mut self) -> EnvOverrideReport {
+        let mut report = EnvOverrideReport::default();
+
+        warn_ignored_shared_bridge_env();
+
+        if let Some(host) = non_empty_env("KIRO_API_HOST") {
+            self.server.host = host;
+            report.host_source = "env:KIRO_API_HOST";
         }
-        if let Ok(port) = std::env::var("BRIDGE_PORT") {
+        if let Some(port) = non_empty_env("KIRO_API_PORT") {
             if let Ok(p) = port.parse() {
                 self.server.port = p;
+                report.port_source = "env:KIRO_API_PORT";
             }
         }
-        if let Ok(key) = std::env::var("KIRO_API_KEY") {
-            if !key.is_empty() {
-                self.cursor.cursor_api_key = key;
-            }
+        // Forwarded to kiro-cli (product API key), not the HTTP bridge auth key.
+        if let Some(key) = non_empty_env("KIRO_API_KEY") {
+            self.cursor.cursor_api_key = key;
         }
-        if let Ok(key) = std::env::var("BRIDGE_API_KEY") {
-            if !key.is_empty() {
-                self.auth.api_key = key;
-                self.auth.require_auth = true;
-            }
+        if let Some(key) = non_empty_env("KIRO_API_AUTH_KEY") {
+            self.auth.api_key = key;
+            self.auth.require_auth = true;
         }
-        if let Ok(ws) = std::env::var("CURSOR_WORKSPACE") {
+        if let Some(ws) = non_empty_env("KIRO_API_WORKSPACE") {
+            self.cursor.workspace = ws;
+        } else if let Some(ws) = non_empty_env("CURSOR_WORKSPACE") {
+            // Legacy workspace override still honored (not a port/host collision risk).
             self.cursor.workspace = ws;
         }
-        if let Ok(model) = std::env::var("BRIDGE_DEFAULT_MODEL") {
-            if !model.is_empty() {
-                self.cursor.default_model = model;
-            }
+        if let Some(model) = non_empty_env("KIRO_API_DEFAULT_MODEL") {
+            self.cursor.default_model = model;
         }
-        if let Ok(timeout) = std::env::var("BRIDGE_TIMEOUT_SECS") {
+        if let Some(timeout) = non_empty_env("KIRO_API_TIMEOUT_SECS") {
             if let Ok(t) = timeout.parse() {
                 self.server.request_timeout_secs = t;
             }
         }
-        if let Ok(v) = std::env::var("BRIDGE_JSON_MODE") {
-            self.cursor.json_mode = matches!(v.to_lowercase().as_str(), "1" | "true" | "yes");
+        if let Some(v) = non_empty_env("KIRO_API_JSON_MODE") {
+            self.cursor.json_mode = env_truthy(&v);
         }
-        if let Ok(v) = std::env::var("BRIDGE_MAX_CONTEXT_TOKENS") {
+        if let Some(v) = non_empty_env("KIRO_API_MAX_CONTEXT_TOKENS") {
             if let Ok(n) = v.parse::<u32>() {
                 if n > 0 {
                     self.cursor.max_context_tokens = n;
                 }
             }
         }
-        if let Ok(v) = std::env::var("BRIDGE_TRUNCATE_OVER_CONTEXT") {
-            self.cursor.truncate_over_context =
-                matches!(v.to_lowercase().as_str(), "1" | "true" | "yes");
+        if let Some(v) = non_empty_env("KIRO_API_TRUNCATE_OVER_CONTEXT") {
+            self.cursor.truncate_over_context = env_truthy(&v);
+        }
+        if let Some(v) = non_empty_env("KIRO_API_REJECT_WHEN_BUSY") {
+            self.server.reject_when_busy = env_truthy(&v);
+        }
+        if let Some(v) = non_empty_env("KIRO_API_QUEUE_WAIT_SECS") {
+            if let Ok(n) = v.parse() {
+                self.server.queue_wait_secs = n;
+            }
+        }
+        if let Some(v) = non_empty_env("KIRO_API_MAX_CONCURRENCY") {
+            if let Ok(n) = v.parse::<usize>() {
+                if n > 0 {
+                    self.server.max_concurrency = n;
+                }
+            }
+        }
+
+        report
+    }
+}
+
+/// Where the effective bind host/port came from after env overlay.
+#[derive(Debug, Clone)]
+pub struct EnvOverrideReport {
+    pub host_source: &'static str,
+    pub port_source: &'static str,
+}
+
+impl Default for EnvOverrideReport {
+    fn default() -> Self {
+        Self {
+            host_source: "config",
+            port_source: "config",
         }
     }
+}
+
+fn non_empty_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty())
+}
+
+fn env_truthy(v: &str) -> bool {
+    matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on")
+}
+
+fn warn_ignored_shared_bridge_env() {
+    const SHARED: &[&str] = &[
+        "BRIDGE_HOST",
+        "BRIDGE_PORT",
+        "BRIDGE_API_KEY",
+        "BRIDGE_TIMEOUT_SECS",
+        "BRIDGE_JSON_MODE",
+        "BRIDGE_DEFAULT_MODEL",
+        "BRIDGE_MAX_CONTEXT_TOKENS",
+        "BRIDGE_TRUNCATE_OVER_CONTEXT",
+    ];
+    let found: Vec<&str> = SHARED
+        .iter()
+        .copied()
+        .filter(|name| non_empty_env(name).is_some())
+        .collect();
+    if found.is_empty() {
+        return;
+    }
+    tracing::warn!(
+        "ignoring shared env [{}] — use KIRO_API_* instead (avoids Cursor-API / Kiro-API collisions)",
+        found.join(", ")
+    );
 }
 
 /// Human-readable ready banner for logs / stdout / TUI status.

@@ -19,8 +19,8 @@ pub enum Tab {
     Config,
     Logs,
     Usage,
-    Agent,
     Help,
+    Agent,
     Cli,
 }
 
@@ -30,8 +30,8 @@ impl Tab {
         Tab::Config,
         Tab::Logs,
         Tab::Usage,
-        Tab::Agent,
         Tab::Help,
+        Tab::Agent,
         Tab::Cli,
     ];
 
@@ -41,8 +41,8 @@ impl Tab {
             Tab::Config => "Config",
             Tab::Logs => "Logs",
             Tab::Usage => "Usage",
-            Tab::Agent => "Agent",
             Tab::Help => "Help",
+            Tab::Agent => "Agent",
             Tab::Cli => "CLI",
         }
     }
@@ -52,9 +52,9 @@ impl Tab {
             Tab::Dashboard => Tab::Config,
             Tab::Config => Tab::Logs,
             Tab::Logs => Tab::Usage,
-            Tab::Usage => Tab::Agent,
-            Tab::Agent => Tab::Help,
-            Tab::Help => Tab::Cli,
+            Tab::Usage => Tab::Help,
+            Tab::Help => Tab::Agent,
+            Tab::Agent => Tab::Cli,
             Tab::Cli => Tab::Dashboard,
         }
     }
@@ -65,9 +65,9 @@ impl Tab {
             Tab::Config => Tab::Dashboard,
             Tab::Logs => Tab::Config,
             Tab::Usage => Tab::Logs,
-            Tab::Agent => Tab::Usage,
-            Tab::Help => Tab::Agent,
-            Tab::Cli => Tab::Help,
+            Tab::Help => Tab::Usage,
+            Tab::Agent => Tab::Help,
+            Tab::Cli => Tab::Agent,
         }
     }
 
@@ -175,7 +175,7 @@ impl TuiApp {
             log_scroll: 0,
             usage_scroll: 0,
             help_scroll: 0,
-            status_message: "Kiro-API · s start/stop · 5 Agent · 7 CLI · q quit".into(),
+            status_message: "Kiro-API · s start/stop · 6 Agent · 7 CLI · q quit".into(),
             should_quit: false,
             smoke_running: false,
             cli: None,
@@ -453,11 +453,11 @@ impl TuiApp {
             return;
         }
         if matches!(key.code, KeyCode::F(5)) {
-            self.switch_tab(Tab::Agent);
+            self.switch_tab(Tab::Help);
             return;
         }
         if matches!(key.code, KeyCode::F(6)) {
-            self.switch_tab(Tab::Help);
+            self.switch_tab(Tab::Agent);
             return;
         }
         if matches!(key.code, KeyCode::F(7)) {
@@ -557,8 +557,8 @@ impl TuiApp {
             KeyCode::Char('2') => self.switch_tab(Tab::Config),
             KeyCode::Char('3') => self.switch_tab(Tab::Logs),
             KeyCode::Char('4') => self.switch_tab(Tab::Usage),
-            KeyCode::Char('5') => self.switch_tab(Tab::Agent),
-            KeyCode::Char('6') => self.switch_tab(Tab::Help),
+            KeyCode::Char('5') => self.switch_tab(Tab::Help),
+            KeyCode::Char('6') => self.switch_tab(Tab::Agent),
             KeyCode::Char('7') => self.switch_tab(Tab::Cli),
             KeyCode::Char('s') if self.tab == Tab::Dashboard => {
                 if self.state.is_running() {
