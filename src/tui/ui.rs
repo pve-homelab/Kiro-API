@@ -511,7 +511,7 @@ fn draw_agent(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     let alive = app.agent.as_ref().is_some_and(|c| c.alive());
     let banner = if alive {
-        "Interactive Kiro chat (separate from /v1 headless jobs). Chat here while the API serves clients."
+        "Interactive Kiro chat — separate from /v1 headless API jobs. Shift+R restarts."
     } else {
         "Agent not running — press r to start, or Shift+R to restart"
     };

@@ -29,7 +29,7 @@ Tab order:
 
 Dashboard and Config expose max context tokens. Usage shows live / recent token estimates. Agent and `/v1` are separate lanes that only share login, model, and workspace settings.
 
-By default the runner **queues** when concurrency slots are full (`reject_when_busy=false`). The `long_running` profile uses concurrency 1 with queueing so batched clients wait instead of getting HTTP 429. `/health` reports `available_concurrency` so operators can distinguish “legitimately busy” from “stuck”.
+By default the runner **queues** when concurrency slots are full (`reject_when_busy=false`). The `long_running` profile uses concurrency 1 with queueing so additional `/v1` callers wait instead of getting HTTP 429. `/health` reports `available_concurrency` so operators can distinguish “legitimately busy” from “stuck”.
 
 Bind host/port come from `config.toml` or product-specific `KIRO_API_HOST` / `KIRO_API_PORT` only — shared `BRIDGE_*` env vars are ignored to avoid collisions with Cursor-API on the same machine.
 

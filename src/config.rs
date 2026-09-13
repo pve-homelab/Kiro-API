@@ -103,7 +103,7 @@ impl Default for ServerConfig {
             port: 8788,
             max_concurrency: 2,
             request_timeout_secs: 600,
-            // Queue by default so batched clients are not 429'd while one job runs.
+            // Queue by default so concurrent /v1 callers wait instead of getting 429.
             reject_when_busy: false,
             queue_wait_secs: 0,
         }
@@ -241,7 +241,7 @@ impl Config {
             "long_running" | "long-running" | "long" => {
                 self.server.request_timeout_secs = 900;
                 self.server.max_concurrency = 1;
-                // Queue instead of immediate 429 — batched overnight clients need this.
+                // Queue instead of immediate 429 when the single slot is busy.
                 self.server.reject_when_busy = false;
                 self.server.queue_wait_secs = 0;
                 self.cursor.mode = "ask".into();
