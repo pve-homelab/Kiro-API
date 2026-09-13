@@ -511,7 +511,7 @@ fn draw_agent(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     let alive = app.agent.as_ref().is_some_and(|c| c.alive());
     let banner = if alive {
-        "Interactive Kiro chat (separate from /v1 headless jobs). Chat here while API serves ATO."
+        "Interactive Kiro chat (separate from /v1 headless jobs). Chat here while the API serves clients."
     } else {
         "Agent not running — press r to start, or Shift+R to restart"
     };
@@ -552,7 +552,7 @@ fn draw_cli(frame: &mut Frame, area: Rect, app: &TuiApp) {
 
     let alive = app.cli.as_ref().is_some_and(|c| c.alive());
     let banner = if alive {
-        "Embedded shell (PowerShell / $SHELL). Far-right tab — leave with F1–F7 / Ctrl+←. Try: agent --version"
+        "Embedded shell (PowerShell / $SHELL). Far-right tab — leave with F1–F7 / Ctrl+←. Try: kiro-cli --version"
     } else {
         "Shell not running — press r to start, or Shift+R to restart"
     };

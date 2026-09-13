@@ -277,7 +277,7 @@ pub struct AgentLaunch {
 }
 
 /// Windows CreateProcess command-line limit is ~32 767 chars and surfaces as
-/// `os error 206` ("filename or extension is too long") when the ATO/AI prompt
+/// `os error 206` ("filename or extension is too long") when a large prompt
 /// is passed as a single argv. Keep a conservative headroom for flags/paths.
 #[cfg(windows)]
 const INLINE_PROMPT_MAX_CHARS: usize = 4_000;
