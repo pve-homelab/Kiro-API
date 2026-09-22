@@ -1,0 +1,27 @@
+flowchart LR
+    subgraph BUILD["Internet-connected staging box"]
+        WHEELS["pip download<br/>-> wheelhouse/"]
+        BASEIMG["docker pull<br/>python:3.12-slim"]
+        KIROBIN["obtain kiro-cli<br/>binary -> vendor/"]
+        SAVE["docker build bundle<br/>docker save -> tar.gz"]
+    end
+
+    subgraph TRANSFER["Manual transfer (airgap)"]
+        TAR["kiro-api-bundle-2.0.0.tar.gz"]
+    end
+
+    subgraph AIRGAP["Airgapped Ubuntu workspace"]
+        LOAD["docker load"]
+        COMPOSE["docker compose -f<br/>docker-compose.bundle.yml up -d"]
+        TRAYRUN["tray/run-tray.sh"]
+        RUNNING["kiro-api :8787 /v1<br/>dashboard :8788<br/>ghost tray icon"]
+    end
+
+    WHEELS --> SAVE
+    BASEIMG --> SAVE
+    KIROBIN --> SAVE
+    SAVE --> TAR
+    TAR --> LOAD
+    LOAD --> COMPOSE
+    COMPOSE --> RUNNING
+    TRAYRUN --> RUNNING

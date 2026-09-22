@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    participant User
+    participant Tray as kiro-tray agent
+    participant Admin as /admin API
+    participant CLI as kiro-cli
+    participant SSO as Identity provider
+
+    User->>Tray: click "Login to Kiro CLI"
+    Tray->>Admin: POST /admin/login
+    Admin->>CLI: kiro-cli login --use-device-flow
+    CLI-->>Admin: device code + verification URL
+    Admin-->>Tray: login started
+    Tray-->>User: notify "Approve in browser"
+    User->>SSO: approve device code
+    SSO-->>CLI: token issued
+    CLI-->>Admin: login success
+    Tray->>Admin: GET /admin/login/status (poll)
+    Admin-->>Tray: returncode 0
+    Tray-->>User: notify "Logged in" + dot turns green

@@ -1,0 +1,26 @@
+sequenceDiagram
+    autonumber
+    participant App as Client app / agent
+    participant API as FastAPI /v1
+    participant Pool as Concurrency pool
+    participant Reaper as Reaper
+    participant CLI as kiro-cli
+
+    App->>API: POST /v1/chat/completions
+    API->>API: flatten messages -> prompt
+    API->>Pool: acquire slot (semaphore)
+    alt queue full and reject_when_busy
+        Pool-->>API: BusyError
+        API-->>App: 429 Too Many Requests
+    else slot acquired
+        Pool->>CLI: spawn chat --no-interactive (prompt on stdin)
+        Pool->>Reaper: track(pid, hard deadline)
+        alt completes in time
+            CLI-->>Pool: stdout (reply)
+        else timeout / client disconnect
+            Pool->>CLI: SIGKILL process group
+        end
+        Pool->>Reaper: untrack(pid) + reap
+        Pool-->>API: text + token estimate
+        API-->>App: OpenAI chat.completion (or SSE stream)
+    end

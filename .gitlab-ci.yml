@@ -1,0 +1,158 @@
+# ===========================================================================
+# Kiro-API V2 — GitLab CI for a self-hosted, AIRGAPPED GitLab.
+#
+# This pipeline assumes NO public internet: no hub.docker.com, no pypi.org.
+# It pulls images from your INTERNAL registry and installs Python packages from
+# an INTERNAL index (or a committed/staged wheelhouse).
+#
+# ---------------------------------------------------------------------------
+# SET THESE for your environment (CI/CD > Settings > Variables, or here):
+#
+#   INTERNAL_REGISTRY   e.g. registry.internal.example.com/library
+#                       Prefix for python:3.12-slim and docker:27-dind.
+#   PIP_INDEX_URL       e.g. https://pypi.internal.example.com/simple
+#                       Internal PyPI mirror. If you use a committed wheelhouse
+#                       instead, leave PIP_INDEX_URL empty and set USE_WHEELHOUSE=1.
+#   USE_WHEELHOUSE      "1" to install from ./wheelhouse with --no-index.
+#   IMAGE_REPOSITORY     Registry path for the images, e.g. harbor.example.com/kiro/kiro-api
+#                        (the bundle image is published with a "-bundle" suffix).
+#   REGISTRY_USER        User for the internal registry.
+#   REGISTRY_PASSWORD    Password/token for the internal registry (masked variable).
+#
+# Runners: at least one runner with the `docker` executor (for test/lint jobs)
+# and, for the build job, either docker-in-docker or a socket-bound runner.
+# Tag your runners and set RUNNER_TAG if you need to target specific ones.
+# ===========================================================================
+
+variables:
+  # --- Override in GitLab CI/CD variables for your site --------------------
+  INTERNAL_REGISTRY: "registry.internal.example.com/library"
+  PIP_INDEX_URL: ""
+  USE_WHEELHOUSE: "0"
+  # Pinned base images (pulled from INTERNAL_REGISTRY).
+  PY_IMAGE: "python:3.12-slim"
+  DIND_IMAGE: "docker:27-dind"
+  DOCKER_CLI_IMAGE: "docker:27-cli"
+  IMAGE_REPOSITORY: "$INTERNAL_REGISTRY/kiro-api"
+  # Speeds up pip and keeps caches inside the project.
+  PIP_NO_CACHE_DIR: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+stages:
+  - lint
+  - test
+  - build
+
+# --- Shared setup for Python jobs ------------------------------------------
+.python_base:
+  image: "$INTERNAL_REGISTRY/$PY_IMAGE"
+  before_script:
+    - |
+      set -e
+      if [ "$USE_WHEELHOUSE" = "1" ]; then
+        echo "Installing from local wheelhouse (offline)"
+        pip install --no-index --find-links=wheelhouse \
+          -r app/requirements.txt -r requirements-dev.txt
+      else
+        echo "Installing from internal index: ${PIP_INDEX_URL:-<default pip config>}"
+        if [ -n "$PIP_INDEX_URL" ]; then
+          pip config set global.index-url "$PIP_INDEX_URL"
+        fi
+        pip install -r app/requirements.txt -r requirements-dev.txt
+      fi
+      chmod +x scripts/kiro-cli-stub.sh || true
+
+lint:
+  stage: lint
+  extends: .python_base
+  script:
+    - ruff check app tray tests
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+unit-tests:
+  stage: test
+  extends: .python_base
+  script:
+    # Unit tests only (fast, no app boot). Everything except the integration mark.
+    - pytest -m "not integration"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+integration-tests:
+  stage: test
+  extends: .python_base
+  script:
+    # Integration tests run the app against the kiro-cli STUB (no real auth).
+    - pytest -m integration
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+    paths:
+      - report.xml
+    expire_in: 1 week
+  # Emit a JUnit report GitLab can display in the MR.
+  variables:
+    PYTEST_ADDOPTS: "--junitxml=report.xml"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+# --- Build and publish both runtime images ---------------------------------
+# Uses docker-in-docker. If your runners bind the host docker socket instead,
+# remove the `services:` block and the DOCKER_HOST/TLS vars.
+build-image:
+  stage: build
+  image: "$INTERNAL_REGISTRY/$DOCKER_CLI_IMAGE"
+  services:
+    - name: "$INTERNAL_REGISTRY/$DIND_IMAGE"
+      alias: docker
+  variables:
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+  before_script:
+    - docker info
+  script:
+    - echo "$REGISTRY_PASSWORD" | docker login "${INTERNAL_REGISTRY%%/*}" -u "$REGISTRY_USER" --password-stdin
+    # Build the standard image. kiro-cli is mounted from the host at runtime.
+    - |
+      docker build \
+        --build-arg PYTHON_IMAGE="$INTERNAL_REGISTRY/$PY_IMAGE" \
+        --build-arg OFFLINE="$USE_WHEELHOUSE" \
+        -f docker/Dockerfile \
+        -t "$IMAGE_REPOSITORY:${CI_COMMIT_SHORT_SHA}" .
+      docker push "$IMAGE_REPOSITORY:${CI_COMMIT_SHORT_SHA}"
+    # Build the self-contained bundle image. kiro-cli must be staged in vendor/.
+    - |
+      docker build \
+        --build-arg PYTHON_IMAGE="$INTERNAL_REGISTRY/$PY_IMAGE" \
+        --build-arg OFFLINE="$USE_WHEELHOUSE" \
+        -f docker/Dockerfile.bundle \
+        -t "$IMAGE_REPOSITORY-bundle:${CI_COMMIT_SHORT_SHA}" .
+      docker push "$IMAGE_REPOSITORY-bundle:${CI_COMMIT_SHORT_SHA}"
+    # Publish stable pull tags from the default branch; immutable commit tags
+    # remain available for rollbacks.
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$IMAGE_REPOSITORY:${CI_COMMIT_SHORT_SHA}" "$IMAGE_REPOSITORY:latest"
+        docker tag "$IMAGE_REPOSITORY-bundle:${CI_COMMIT_SHORT_SHA}" "$IMAGE_REPOSITORY-bundle:latest"
+        docker push "$IMAGE_REPOSITORY:latest"
+        docker push "$IMAGE_REPOSITORY-bundle:latest"
+      fi
+  rules:
+    # Only build on the default branch / tags to save runner time.
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG'
+
+# ===========================================================================
+# NOT run in CI: real-kiro-cli validation.
+# CI uses the stub because runners have no interactive login. Do the real
+# end-to-end check on the workspace with scripts/ (see docs/DEPLOYMENT.md):
+#   docker compose up -d
+#   python3 scripts/smoke_test.py http://127.0.0.1:8787
+# ===========================================================================

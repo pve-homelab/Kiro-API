@@ -1,0 +1,19 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra -q"
+markers = [
+    "integration: tests that run the app against the kiro-cli stub",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["tray/previews", "docs", "vendor", "wheelhouse"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # line length handled by formatter; long strings tolerated

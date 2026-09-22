@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Kiro-API Tray
+Comment=System-tray control for the Kiro-API V2 service
+# Edit Exec to the absolute path of run-tray.sh on your machine, e.g.:
+#   Exec=/home/youruser/kiro-api-docker/tray/run-tray.sh
+Exec=bash -lc "$HOME/kiro-api-docker/tray/run-tray.sh"
+Icon=
+Terminal=false
+Categories=Development;Utility;
+X-GNOME-Autostart-enabled=true
+# To autostart at login, copy this file to:
+#   ~/.config/autostart/kiro-api-tray.desktop

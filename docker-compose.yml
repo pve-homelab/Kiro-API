@@ -1,0 +1,82 @@
+# ===========================================================================
+# Kiro-API V2 — STANDARD configuration.
+#
+# Builds the slim service image and mounts kiro-cli + credentials from the
+# host. Use this on a machine where kiro-cli is already installed and you have
+# logged in (or will log in via the tray "Login" button).
+#
+#   cp .env.example .env      # then edit as needed
+#   docker compose pull
+#   docker compose up -d
+#
+# The tray agent controls this stack (restart on port/address change, login).
+# ===========================================================================
+services:
+  kiro-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+        OFFLINE: ${OFFLINE:-0}
+    image: ${IMAGE_REPOSITORY:-kiro-api}:${IMAGE_TAG:-2.0.0}
+    container_name: kiro-api
+    restart: unless-stopped
+
+    # Bind only to localhost on the host side (airgapped, single-user box).
+    ports:
+      - "${KIRO_API_HOST:-127.0.0.1}:${KIRO_API_PORT:-8787}:${KIRO_API_PORT:-8787}"
+      - "${KIRO_API_HOST:-127.0.0.1}:${KIRO_DASHBOARD_PORT:-8788}:${KIRO_DASHBOARD_PORT:-8788}"
+
+    environment:
+      KIRO_API_HOST: "0.0.0.0"
+      KIRO_API_PORT: "${KIRO_API_PORT:-8787}"
+      KIRO_DASHBOARD_PORT: "${KIRO_DASHBOARD_PORT:-8788}"
+      KIRO_API_ADVERTISED_HOST: "${KIRO_API_ADVERTISED_HOST:-localhost}"
+      KIRO_API_AUTH_KEY: "${KIRO_API_AUTH_KEY:-}"
+      KIRO_API_MAX_CONCURRENCY: "${KIRO_API_MAX_CONCURRENCY:-8}"
+      KIRO_API_MAX_QUEUE: "${KIRO_API_MAX_QUEUE:-0}"
+      KIRO_API_REJECT_WHEN_BUSY: "${KIRO_API_REJECT_WHEN_BUSY:-false}"
+      KIRO_API_TIMEOUT_SHORT: "${KIRO_API_TIMEOUT_SHORT:-120}"
+      KIRO_API_TIMEOUT_LONG: "${KIRO_API_TIMEOUT_LONG:-900}"
+      KIRO_API_DEFAULT_MODEL: "${KIRO_API_DEFAULT_MODEL:-auto}"
+      KIRO_CLI_BIN: "${KIRO_CLI_BIN:-/usr/local/bin/kiro-cli}"
+      KIRO_CLI_WORKSPACE: "/work"
+
+    volumes:
+      # kiro-cli binary (read-only) from the host.
+      - "${HOST_KIRO_CLI_BIN:-/usr/local/bin/kiro-cli}:/usr/local/bin/kiro-cli:ro"
+      # kiro-cli config/credentials (read-only). Verify the real path on your box!
+      - "${HOST_KIRO_CONFIG_DIR:-${HOME}/.kiro}:/home/kiro/.kiro:ro"
+      - "${HOST_AWS_DIR:-${HOME}/.aws}:/home/kiro/.aws:ro"
+      # Optional workspace for CLI tool calls.
+      - "./work:/work"
+
+    # Resource guardrails so a runaway can't take down the host.
+    deploy:
+      resources:
+        limits:
+          pids: 512          # hard ceiling on processes (catches fork storms)
+
+    # Reap zombies at the container level too (belt and braces with the reaper).
+    # tini (init) becomes PID 1, forwards SIGTERM to the app, and reaps any
+    # stray children so nothing is orphaned inside the container.
+    init: true
+
+    # On `docker stop` / compose down: send SIGTERM, let the app drain in-flight
+    # kiro-cli jobs and stop both servers, then hard-kill after the grace period.
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('KIRO_API_PORT','8787')+'/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

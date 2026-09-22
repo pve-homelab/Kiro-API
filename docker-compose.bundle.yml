@@ -1,0 +1,78 @@
+# ===========================================================================
+# Kiro-API V2 — BUNDLE configuration (airgapped).
+#
+# Uses the single self-contained bundle image (service + deps + kiro-cli).
+# You pull/`docker load` ONE image; only credentials are mounted at runtime.
+#
+#   cp .env.example .env
+#   docker compose -f docker-compose.bundle.yml pull
+#   docker compose -f docker-compose.bundle.yml up -d
+#
+# To ship to another airgapped host:
+#   docker save kiro-api-bundle:2.0.0 | gzip > kiro-api-bundle-2.0.0.tar.gz
+#   # copy the tarball across, then on the target:
+#   docker load < kiro-api-bundle-2.0.0.tar.gz
+#   docker compose -f docker-compose.bundle.yml up -d
+# ===========================================================================
+services:
+  kiro-api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.bundle
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.12-slim}
+        OFFLINE: ${OFFLINE:-0}
+    image: ${IMAGE_REPOSITORY:-kiro-api-bundle}:${IMAGE_TAG:-2.0.0}
+    container_name: kiro-api
+    restart: unless-stopped
+
+    ports:
+      - "${KIRO_API_HOST:-127.0.0.1}:${KIRO_API_PORT:-8787}:${KIRO_API_PORT:-8787}"
+      - "${KIRO_API_HOST:-127.0.0.1}:${KIRO_DASHBOARD_PORT:-8788}:${KIRO_DASHBOARD_PORT:-8788}"
+
+    environment:
+      KIRO_API_HOST: "0.0.0.0"
+      KIRO_API_PORT: "${KIRO_API_PORT:-8787}"
+      KIRO_DASHBOARD_PORT: "${KIRO_DASHBOARD_PORT:-8788}"
+      KIRO_API_ADVERTISED_HOST: "${KIRO_API_ADVERTISED_HOST:-localhost}"
+      KIRO_API_AUTH_KEY: "${KIRO_API_AUTH_KEY:-}"
+      KIRO_API_MAX_CONCURRENCY: "${KIRO_API_MAX_CONCURRENCY:-8}"
+      KIRO_API_MAX_QUEUE: "${KIRO_API_MAX_QUEUE:-0}"
+      KIRO_API_REJECT_WHEN_BUSY: "${KIRO_API_REJECT_WHEN_BUSY:-false}"
+      KIRO_API_TIMEOUT_SHORT: "${KIRO_API_TIMEOUT_SHORT:-120}"
+      KIRO_API_TIMEOUT_LONG: "${KIRO_API_TIMEOUT_LONG:-900}"
+      KIRO_API_DEFAULT_MODEL: "${KIRO_API_DEFAULT_MODEL:-auto}"
+      # kiro-cli is baked into the bundle image.
+      KIRO_CLI_BIN: "/usr/local/bin/kiro-cli"
+      KIRO_CLI_WORKSPACE: "/work"
+      # Stub convenience: force logged-in for a pure-offline demo.
+      KIRO_STUB_LOGGED_IN: "${KIRO_STUB_LOGGED_IN:-0}"
+
+    volumes:
+      # Credentials only (binary is baked in). Verify the real path on your box!
+      - "${HOST_KIRO_CONFIG_DIR:-${HOME}/.kiro}:/home/kiro/.kiro:ro"
+      - "${HOST_AWS_DIR:-${HOME}/.aws}:/home/kiro/.aws:ro"
+      - "./work:/work"
+
+    deploy:
+      resources:
+        limits:
+          pids: 512
+
+    # tini (init) becomes PID 1, forwards SIGTERM, and reaps stray children.
+    init: true
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('KIRO_API_PORT','8787')+'/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
