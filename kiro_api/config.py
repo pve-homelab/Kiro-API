@@ -46,6 +46,18 @@ class Config:
     # --- Auth (bridge API key; empty = no auth) ---
     auth_key: str = field(default_factory=lambda: _env_str("KIRO_API_AUTH_KEY", "").strip())
 
+    # --- Security limits ---
+    # Max request body size in bytes (413 beyond this). Default 8 MiB covers
+    # large prompts/transcripts; raise for image-heavy multimodal payloads.
+    max_body_bytes: int = field(
+        default_factory=lambda: _env_int("KIRO_API_MAX_BODY_BYTES", 8 * 1024 * 1024)
+    )
+    # Per-client request rate limit (requests per window). 0 = disabled.
+    rate_limit: int = field(default_factory=lambda: _env_int("KIRO_API_RATE_LIMIT", 0))
+    rate_limit_window: int = field(
+        default_factory=lambda: _env_int("KIRO_API_RATE_LIMIT_WINDOW", 60)
+    )
+
     # --- Worker pool (elastic) ---
     max_workers: int = field(default_factory=lambda: _env_int("KIRO_API_MAX_WORKERS", 8))
     min_workers: int = field(default_factory=lambda: _env_int("KIRO_API_MIN_WORKERS", 0))

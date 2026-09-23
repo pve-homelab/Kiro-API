@@ -28,6 +28,12 @@ log = logging.getLogger("kiro-api")
 
 def create_app(config: Config) -> FastAPI:
     app = FastAPI(title="Kiro-API V3", version=__version__)
+    # Security middleware first (outermost): rate limit, then body-size limit.
+    from .security import BodyLimitMiddleware, RateLimitMiddleware
+    if config.rate_limit > 0:
+        app.add_middleware(RateLimitMiddleware, limit=config.rate_limit,
+                           window=config.rate_limit_window)
+    app.add_middleware(BodyLimitMiddleware, max_bytes=config.max_body_bytes)
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_credentials=True,
         allow_methods=["*"], allow_headers=["*"],

@@ -133,6 +133,15 @@ curl -s http://localhost:8787/v1/chat/completions \
 
 ## Check it's healthy
 
+Run the built-in environment check — it verifies kiro-cli is present, you're
+logged in, the ACP path works, the bind is free, and the config is sane:
+
+```bash
+kiro-api doctor
+```
+
+For the running service's live status:
+
 ```bash
 kiro-api status
 ```

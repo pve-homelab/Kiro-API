@@ -71,6 +71,9 @@ class ACPWorker:
         self.busy = False
         self.last_used = 0.0
         self._dead = False  # set on kill/EOF so liveness is instant, not race-y
+        self.protocol_version: int | None = None
+        self.agent_name = ""
+        self.agent_version = ""
 
     # -- lifecycle --
     def alive(self) -> bool:
@@ -98,6 +101,12 @@ class ACPWorker:
         self._reader = asyncio.create_task(self._read_loop())
         self._stderr_reader = asyncio.create_task(self._stderr_loop())
 
+    # ACP protocol versions this client understands. The kiro-cli acp surface is
+    # not part of AWS's public docs, so we validate the negotiated version at
+    # startup and fail loudly (rather than subtly) if a kiro-cli update changes
+    # the contract beyond what we support.
+    SUPPORTED_PROTOCOL_VERSIONS = frozenset({1})
+
     async def initialize(self) -> None:
         params = {
             "protocolVersion": 1,
@@ -106,8 +115,35 @@ class ACPWorker:
                 "terminal": False,
             },
         }
-        await self._call("initialize", params, timeout=30)
+        result = await self._call("initialize", params, timeout=30)
+        proto = 1
+        if isinstance(result, dict):
+            raw = result.get("protocolVersion", 1)
+            try:
+                proto = int(raw)
+            except (TypeError, ValueError):
+                proto = raw
+            agent = result.get("agentInfo") or result.get("agent") or {}
+            if isinstance(agent, dict):
+                self.agent_name = str(agent.get("name") or "")
+                self.agent_version = str(agent.get("version") or "")
+        self.protocol_version = proto
+        if proto not in self.SUPPORTED_PROTOCOL_VERSIONS:
+            raise ACPError(
+                -32001,
+                f"incompatible ACP protocol version {proto!r} from kiro-cli "
+                f"(supported: {sorted(self.SUPPORTED_PROTOCOL_VERSIONS)}). "
+                "The kiro-cli acp contract may have changed; upgrade kiro-api or "
+                "pin a compatible kiro-cli.",
+            )
         self._initialized = True
+        log.info(
+            "ACP initialized: agent=%s v%s protocol=%s",
+            getattr(self, "agent_name", "?") or "?",
+            getattr(self, "agent_version", "?") or "?",
+            proto,
+            extra={"worker": self.worker_id},
+        )
 
     async def stop(self) -> None:
         for task in (self._reader, self._stderr_reader):

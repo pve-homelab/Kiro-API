@@ -30,6 +30,21 @@ async def test_single_worker_turn(stub_bin):
         assert "stub reply" in reply
         assert "ping" in reply
         assert w.available_models  # captured from session/new
+        assert w.protocol_version == 1
+        assert w.agent_name == "kiro-cli-stub"
+    finally:
+        await w.stop()
+
+
+async def test_incompatible_protocol_fails_loudly(stub_bin, monkeypatch):
+    from kiro_api.acp.client import ACPError
+    monkeypatch.setenv("KIRO_STUB_PROTOCOL", "999")
+    w = ACPWorker("bad", command=stub_bin)
+    await w.start()
+    try:
+        with pytest.raises(ACPError) as exc:
+            await w.initialize()
+        assert "incompatible ACP protocol" in str(exc.value)
     finally:
         await w.stop()
 

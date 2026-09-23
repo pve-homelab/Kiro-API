@@ -40,7 +40,15 @@ kiro-api config
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KIRO_API_AUTH_KEY` | *(empty)* | Optional API key clients must send (`Authorization: Bearer <key>` or `x-api-key`). Empty = no auth. This is a gateway key; it is unrelated to your Kiro login. |
+| `KIRO_API_AUTH_KEY` | *(empty)* | Optional API key clients must send (`Authorization: Bearer <key>` or `x-api-key`). Empty = no auth. This is a gateway key; it is unrelated to your Kiro login. Compared in constant time. |
+
+### Security limits
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KIRO_API_MAX_BODY_BYTES` | `8388608` (8 MiB) | Reject request bodies larger than this with `413`. Raise for image-heavy multimodal payloads. |
+| `KIRO_API_RATE_LIMIT` | `0` (off) | Max requests per window per client (by `X-Forwarded-For` first hop, else peer IP). `429` + `Retry-After` when exceeded. |
+| `KIRO_API_RATE_LIMIT_WINDOW` | `60` | Rate-limit window in seconds. |
 
 ### Worker pool (concurrency)
 
@@ -209,3 +217,31 @@ Upstream failures are classified and returned in the caller's native envelope:
 A `Retry-After` header is added when the upstream message carries a retry hint
 (most relevant for `429`). In streaming responses the error is delivered as a
 terminal error event followed by `[DONE]`.
+
+---
+
+## Security & trust model
+
+Kiro-API V3 is designed to run on a **trusted host** — your dev box or a
+controlled server — for clients you operate (your agent fleet). Its built-in
+protections are:
+
+- **Bridge auth key** (`KIRO_API_AUTH_KEY`), compared in constant time.
+- **Body-size limit** and optional **per-client rate limiting**.
+- **Localhost-only bind by default** (`127.0.0.1`).
+
+It intentionally does **not** implement TLS, user accounts, or OAuth — that is
+the job of the layer in front of it. If you expose it beyond localhost:
+
+1. **Bind to a specific interface**, not `0.0.0.0`, when you can
+   (`kiro-api set-host <lan-ip>`).
+2. **Always set `KIRO_API_AUTH_KEY`** when binding to a non-loopback address.
+3. **Terminate TLS with a reverse proxy** (nginx, Caddy, Traefik) in front of the
+   service, e.g. `https://kiro.internal → http://127.0.0.1:8787`. Set the proxy
+   to forward `X-Forwarded-For` so per-client rate limiting sees the real client.
+4. **Restrict network access** with a firewall / security group to known clients.
+5. Treat the bridge key as a secret (env or config file with `600` perms), and
+   rotate it with `kiro-api config set auth_key <new>` + restart.
+
+The service talks to Kiro only through the official `kiro-cli` and never handles
+your Kiro credentials directly.

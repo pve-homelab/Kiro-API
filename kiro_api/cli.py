@@ -206,6 +206,82 @@ def _cmd_install_service(args) -> int:
     return install_service(user=args.user)
 
 
+def _cmd_doctor(args) -> int:
+    """Validate the whole environment: kiro-cli present, logged in, ACP works,
+    bind is available, config is sane. Exit 0 only if all critical checks pass."""
+    import asyncio
+    import shutil
+    from pathlib import Path
+
+    from .config import BindError
+
+    cfg = _build_cfg(args)
+    setup_logging("ERROR", "text")
+    checks: list[tuple[str, bool, str]] = []
+
+    def add(name, ok, detail=""):
+        checks.append((name, ok, detail))
+
+    # 1. kiro-cli present
+    kiro_present = bool(shutil.which(cfg.kiro_cli_bin) or Path(cfg.kiro_cli_bin).exists())
+    add("kiro-cli found", kiro_present, cfg.kiro_cli_bin if kiro_present else f"not found: {cfg.kiro_cli_bin}")
+
+    # 2. bind is available
+    try:
+        cfg.validate_bind()
+        add("bind available", True, f"{cfg.host}:{cfg.port}")
+    except BindError as exc:
+        add("bind available", False, str(exc))
+
+    # 3. config sanity
+    sane = cfg.max_workers >= 1 and cfg.min_workers >= 0 and cfg.min_workers <= cfg.max_workers
+    add("config sane", sane, f"workers {cfg.min_workers}..{cfg.max_workers}, port {cfg.port}")
+
+    logged_in = False
+    acp_ok = False
+    if kiro_present:
+        async def _probe():
+            nonlocal logged_in, acp_ok
+            from .auth import AuthManager
+            auth = AuthManager(cfg.kiro_cli_bin)
+            st = await auth.refresh_state(force=True)
+            logged_in = st.logged_in
+            if logged_in:
+                from .acp.client import ACPWorker
+                w = ACPWorker("doctor", command=cfg.kiro_cli_bin, engine=cfg.acp_engine)
+                try:
+                    await w.start()
+                    await w.initialize()
+                    sid = await w.new_session()
+                    acp_ok = bool(sid)
+                finally:
+                    await w.stop()
+        try:
+            asyncio.run(asyncio.wait_for(_probe(), timeout=60))
+        except Exception as exc:  # noqa: BLE001
+            add("acp probe", False, str(exc))
+
+    add("logged in to kiro", logged_in, "" if logged_in else "run: kiro-api login")
+    if logged_in:
+        add("acp session works", acp_ok, "" if acp_ok else "kiro-cli acp did not start a session")
+
+    # Report
+    print("kiro-api doctor")
+    all_ok = True
+    for name, ok, detail in checks:
+        mark = "OK  " if ok else "FAIL"
+        # 'logged in' and 'acp' are critical only if kiro-cli is present.
+        print(f"  [{mark}] {name}" + (f" — {detail}" if detail else ""))
+        if not ok:
+            all_ok = False
+    print()
+    if all_ok:
+        print("All checks passed — the environment is ready.")
+        return 0
+    print("Some checks failed — see above.")
+    return 1
+
+
 def _cmd_version(args) -> int:
     print(f"kiro-api {__version__}")
     import shutil
@@ -300,6 +376,10 @@ def build_parser() -> argparse.ArgumentParser:
     inst_p.add_argument("--user", action="store_true", help="install as a --user service")
     inst_p.add_argument("--uninstall", action="store_true", help="remove the service")
     inst_p.set_defaults(func=_cmd_install_service)
+
+    doctor_p = sub.add_parser("doctor", help="validate the environment (kiro-cli, login, acp, bind)")
+    _add_common(doctor_p)
+    doctor_p.set_defaults(func=_cmd_doctor)
 
     ver_p = sub.add_parser("version", help="print kiro-api and kiro-cli versions")
     _add_common(ver_p)

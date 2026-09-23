@@ -1,9 +1,17 @@
 """Shared helpers for route shims: auth dependency, MCP passthrough, long-run hint."""
 from __future__ import annotations
 
+import hmac
 import json
 
 from fastapi import Header, HTTPException, Request
+
+
+def _key_matches(presented: str | None, expected: str) -> bool:
+    """Constant-time comparison so a wrong key can't be timing-probed."""
+    if not presented:
+        return False
+    return hmac.compare_digest(presented, expected)
 
 
 async def require_auth(request: Request, authorization: str | None = Header(default=None),
@@ -12,7 +20,8 @@ async def require_auth(request: Request, authorization: str | None = Header(defa
     if not cfg.auth_required:
         return
     key = cfg.auth_key
-    if authorization == f"Bearer {key}" or x_api_key == key:
+    bearer = authorization[len("Bearer "):] if authorization and authorization.startswith("Bearer ") else None
+    if _key_matches(bearer, key) or _key_matches(x_api_key, key):
         return
     raise HTTPException(status_code=401, detail="Invalid or missing API key")
 

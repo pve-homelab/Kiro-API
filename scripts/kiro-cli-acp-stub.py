@@ -52,8 +52,9 @@ def _handle_acp_line(line: str) -> None:
     mid = msg.get("id")
 
     if method == "initialize":
+        proto = int(os.environ.get("KIRO_STUB_PROTOCOL", "1"))
         _emit({"jsonrpc": "2.0", "id": mid, "result": {
-            "protocolVersion": 1,
+            "protocolVersion": proto,
             "agentInfo": {"name": "kiro-cli-stub", "version": "0.0.1"},
             "agentCapabilities": {},
         }})
