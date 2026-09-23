@@ -121,7 +121,9 @@ async def test_spawn_failure_surfaces_cleanly(config):
     pool = WorkerPool(config)
     await pool.start()
     try:
-        with pytest.raises(Exception):
+        # A bad binary surfaces as an ApiError (overloaded/timeout) or an OSError
+        # from the failed spawn — never a hang.
+        with pytest.raises((ApiError, OSError)):
             async with pool.lease(timeout=5):
                 pass
     finally:

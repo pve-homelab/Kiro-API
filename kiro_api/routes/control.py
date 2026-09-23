@@ -52,6 +52,42 @@ async def stats(request: Request) -> dict:
     return _snapshot(request)
 
 
+@router.get("/metrics")
+async def metrics(request: Request):
+    """Prometheus text-exposition metrics."""
+    from fastapi.responses import PlainTextResponse
+
+    app = request.app
+    pool = app.state.pool.stats()
+    auth = app.state.auth.state
+    m = app.state.service.metrics.snapshot()
+    lines: list[str] = []
+
+    def metric(name, mtype, value, help_text, labels=""):
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {mtype}")
+        lines.append(f"{name}{labels} {value}")
+
+    metric("kiro_api_uptime_seconds", "gauge", int(time.time() - _START), "Service uptime.")
+    metric("kiro_api_requests_total", "counter", m["requests_total"], "Total API turns started.")
+    metric("kiro_api_errors_total", "counter", m["errors_total"], "Total failed turns.")
+    metric("kiro_api_prompt_tokens_total", "counter", m["prompt_tokens_total"], "Estimated prompt tokens.")
+    metric("kiro_api_completion_tokens_total", "counter", m["completion_tokens_total"], "Estimated completion tokens.")
+    metric("kiro_api_workers", "gauge", pool["workers_total"], "Live workers.")
+    metric("kiro_api_workers_busy", "gauge", pool["workers_busy"], "Busy workers.")
+    metric("kiro_api_workers_max", "gauge", pool["max_workers"], "Max workers (ceiling).")
+    metric("kiro_api_queue_waiters", "gauge", pool["queue_waiters"], "Requests waiting for a worker.")
+    metric("kiro_api_logged_in", "gauge", 1 if auth.logged_in else 0, "1 if logged in to Kiro, else 0.")
+    # Per-category error breakdown.
+    lines.append("# HELP kiro_api_errors_by_category_total Failed turns by category.")
+    lines.append("# TYPE kiro_api_errors_by_category_total counter")
+    for cat, n in m["errors_by_category"].items():
+        safe = cat.replace('"', "")
+        lines.append(f'kiro_api_errors_by_category_total{{category="{safe}"}} {n}')
+
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
+
 @router.websocket("/ws/stats")
 async def ws_stats(ws):
     await ws.accept()

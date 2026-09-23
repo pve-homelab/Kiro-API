@@ -12,7 +12,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..errors import ApiError
 from ..streaming import _with_keepalive
-from .common import long_running, mcp_servers_from_request, require_auth, workspace_from_request
+from .common import (
+    effort_from_request,
+    long_running,
+    mcp_servers_from_request,
+    require_auth,
+    workspace_from_request,
+)
 
 router = APIRouter(prefix="/acp", tags=["acp"])
 
@@ -26,6 +32,7 @@ async def acp_chat(request: Request, _: None = Depends(require_auth)):
     msgs = body.get("messages") or []
     mcp = mcp_servers_from_request(request, body)
     cwd = workspace_from_request(request)
+    effort = effort_from_request(request, body)
     lr = long_running(request, model)
 
     collected: list[dict] = []
@@ -33,7 +40,7 @@ async def acp_chat(request: Request, _: None = Depends(require_auth)):
     reasoning = []
     finish = "stop"
     try:
-        async for event in svc.run_stream(msgs, model, mcp_servers=mcp, long_running=lr, cwd=cwd):
+        async for event in svc.run_stream(msgs, model, mcp_servers=mcp, long_running=lr, cwd=cwd, effort=effort):
             collected.append(event)
             if event["type"] == "text":
                 content.append(event["content"])
@@ -60,10 +67,11 @@ async def acp_chat_stream(request: Request, _: None = Depends(require_auth)):
     msgs = body.get("messages") or []
     mcp = mcp_servers_from_request(request, body)
     cwd = workspace_from_request(request)
+    effort = effort_from_request(request, body)
     lr = long_running(request, model)
 
     async def gen():
-        events = svc.run_stream(msgs, model, mcp_servers=mcp, long_running=lr, cwd=cwd)
+        events = svc.run_stream(msgs, model, mcp_servers=mcp, long_running=lr, cwd=cwd, effort=effort)
         try:
             async for event in _with_keepalive(events, cfg.sse_keepalive_interval):
                 if event is None:

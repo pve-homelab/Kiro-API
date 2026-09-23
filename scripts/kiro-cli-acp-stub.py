@@ -72,6 +72,9 @@ def _handle_acp_line(line: str) -> None:
         }})
     elif method == "session/set_model":
         _emit({"jsonrpc": "2.0", "id": mid, "result": {}})
+    elif method == "_kiro.dev/commands/execute":
+        # /effort and other slash-command extensions → accept silently.
+        _emit({"jsonrpc": "2.0", "id": mid, "result": {}})
     elif method == "session/prompt":
         sid = msg.get("params", {}).get("sessionId", "")
         if os.environ.get("KIRO_STUB_HANG"):

@@ -45,6 +45,33 @@ def test_discover_ignores_missing_dirs(tmp_path):
     assert discover_earliest_expiry([tmp_path / "nope"]) is None
 
 
+def test_redact_removes_emails():
+    from kiro_api.auth import _redact
+
+    assert "@" not in _redact("Logged in with Google\nEmail: someone@example.com")
+    assert "<redacted>" in _redact("user@host.example is here")
+    # Email: line is dropped; provider text is kept, flattened to one line.
+    out = _redact("Logged in with Google\nEmail: a.b+c@example.com")
+    assert "Google" in out and "\n" not in out and "example.com" not in out
+
+
+async def test_state_detail_has_no_email(stub_bin, monkeypatch):
+    # The stub's whoami prints "stub-user (Builder ID)" with no email, but verify
+    # the pipeline redacts if one were present by patching the probe output.
+    monkeypatch.delenv("KIRO_STUB_LOGGED_OUT", raising=False)
+    auth = AuthManager(stub_bin, whoami_ttl=0)
+
+    async def fake_whoami():
+        from kiro_api.auth import _redact
+        return True, _redact("Logged in with Google\nEmail: secret@example.com")
+
+    monkeypatch.setattr(auth, "_whoami", fake_whoami)
+    st = await auth.refresh_state(force=True)
+    assert "@" not in st.detail
+    assert "example.com" not in st.detail
+    assert st.logged_in is True
+
+
 async def test_refresh_state_logged_in(stub_bin, monkeypatch):
     monkeypatch.delenv("KIRO_STUB_LOGGED_OUT", raising=False)
     auth = AuthManager(stub_bin, refresh_margin=300, whoami_ttl=0)

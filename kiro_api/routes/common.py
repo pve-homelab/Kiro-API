@@ -53,3 +53,34 @@ def mcp_servers_from_request(request: Request, body: dict | None = None) -> list
 
 def workspace_from_request(request: Request) -> str | None:
     return request.headers.get("X-Kiro-Workspace") or None
+
+
+def effort_from_request(request: Request, body: dict | None = None) -> str | None:
+    """Resolve the reasoning-effort level for a turn, in precedence order:
+    X-Kiro-Effort header > OpenAI `reasoning_effort` / nested `reasoning.effort` >
+    Anthropic `thinking.type`/budget hint. Returned raw; the service normalizes it.
+    """
+    hdr = request.headers.get("X-Kiro-Effort")
+    if hdr:
+        return hdr
+    if not body:
+        return None
+    if body.get("reasoning_effort"):
+        return body["reasoning_effort"]
+    reasoning = body.get("reasoning")
+    if isinstance(reasoning, dict) and reasoning.get("effort"):
+        return reasoning["effort"]
+    # Anthropic extended-thinking: map enabled thinking to a sensible level.
+    thinking = body.get("thinking")
+    if isinstance(thinking, dict) and thinking.get("type") == "enabled":
+        budget = thinking.get("budget_tokens")
+        if isinstance(budget, int):
+            if budget >= 32000:
+                return "max"
+            if budget >= 16000:
+                return "xhigh"
+            if budget >= 8000:
+                return "high"
+            return "medium"
+        return "high"
+    return None

@@ -92,6 +92,9 @@ class Config:
     surface_thinking: bool = field(
         default_factory=lambda: _env_bool("KIRO_ACP_SURFACE_THINKING", True)
     )
+    # Default reasoning effort applied when a request doesn't specify one.
+    # Empty = leave kiro-cli's default. One of: low|medium|high|xhigh|max.
+    default_effort: str = field(default_factory=lambda: _env_str("KIRO_ACP_EFFORT", "").strip())
 
     # --- Logging ---
     log_format: str = field(default_factory=lambda: _env_str("KIRO_API_LOG_FORMAT", "text"))

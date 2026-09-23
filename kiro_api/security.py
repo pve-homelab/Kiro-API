@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 # Endpoints that must never be rate-limited or size-checked (liveness probes).
-_EXEMPT_PATHS = {"/health", "/ready", "/stats"}
+_EXEMPT_PATHS = {"/health", "/ready", "/stats", "/metrics"}
 
 
 class BodyLimitMiddleware(BaseHTTPMiddleware):

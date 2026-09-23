@@ -209,6 +209,24 @@ class ACPWorker:
         except ACPError as exc:
             log.warning("set_model %s failed: %s", model_id, exc, extra={"worker": self.worker_id})
 
+    # Reasoning-effort levels kiro-cli accepts (--effort / the /effort command).
+    EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+    async def set_effort(self, session_id: str, effort: str) -> None:
+        """Set the reasoning effort for a session via kiro-cli's /effort command
+        extension. Best-effort: an unsupported level is logged and ignored so it
+        never breaks the turn."""
+        level = (effort or "").strip().lower()
+        if level not in self.EFFORT_LEVELS:
+            log.warning("ignoring unknown effort '%s' (allowed: %s)",
+                        effort, ", ".join(self.EFFORT_LEVELS), extra={"worker": self.worker_id})
+            return
+        try:
+            await self._call("_kiro.dev/commands/execute",
+                             {"sessionId": session_id, "command": "/effort", "arguments": level})
+        except ACPError as exc:
+            log.warning("set_effort %s failed: %s", level, exc, extra={"worker": self.worker_id})
+
     # -- prompting --
     async def prompt_stream(
         self,

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from ..errors import ApiError
 from ..streaming import openai_sse
 from .common import (
+    effort_from_request,
     long_running,
     mcp_servers_from_request,
     require_auth,
@@ -47,17 +48,18 @@ async def chat_completions(request: Request, _: None = Depends(require_auth)):
     lr = long_running(request, model)
     mcp = mcp_servers_from_request(request, body)
     cwd = workspace_from_request(request)
+    effort = effort_from_request(request, body)
     rid = f"chatcmpl-{int(time.time()*1000)}"
 
     if stream:
-        events = svc.run_stream(messages, model, mcp_servers=mcp, long_running=lr, cwd=cwd)
+        events = svc.run_stream(messages, model, mcp_servers=mcp, long_running=lr, cwd=cwd, effort=effort)
         return StreamingResponse(
             openai_sse(events, model, rid, cfg, cfg.surface_thinking),
             media_type="text/event-stream",
             headers={"X-Request-ID": rid, "Cache-Control": "no-cache"},
         )
     try:
-        result = await svc.run(messages, model, mcp_servers=mcp, long_running=lr, cwd=cwd)
+        result = await svc.run(messages, model, mcp_servers=mcp, long_running=lr, cwd=cwd, effort=effort)
     except ApiError as exc:
         return JSONResponse(exc.openai_body(), status_code=exc.http_status, headers=exc.headers())
 
@@ -91,9 +93,10 @@ async def responses(request: Request, _: None = Depends(require_auth)):
     # Responses accepts `input` (str or list) or `messages`.
     messages = _responses_to_messages(body)
     lr = long_running(request, model)
+    effort = effort_from_request(request, body)
     rid = f"resp-{int(time.time()*1000)}"
     try:
-        result = await svc.run(messages, model, long_running=lr)
+        result = await svc.run(messages, model, long_running=lr, effort=effort)
     except ApiError as exc:
         return JSONResponse(exc.openai_body(), status_code=exc.http_status, headers=exc.headers())
     out = {

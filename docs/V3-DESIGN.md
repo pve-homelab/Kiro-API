@@ -271,9 +271,22 @@ kiro-api-docker/               (repo; V3 lives alongside, old app/ removed at th
 
 ---
 
-## 10. Open verification items (to confirm during build/audit)
-- Exact `kiro-cli acp` spawn flags and engine pin (V3 defaults to `--agent-engine v2`; v3 engine needs host-mediated auth not implemented).
-- Whether one ACP worker can safely run >1 concurrent session (default: no; measure later).
-- Kiro's one-active-session-per-OIDC-client behavior under many workers sharing one token cache (design assumes shared read-only creds + single refresh actor).
-- Real token file field names across `~/.kiro` vs `~/.aws/sso/cache` vs `~/.aws/login/cache` (auto-detect + tolerate variants).
+## 10. Verification items — resolved
+
+Validated against a real, logged-in `kiro-cli` 2.23.1 (see the "Verified" note in
+[ARCHITECTURE.md](ARCHITECTURE.md#limitations)):
+
+- ✅ **`kiro-cli acp` spawn flags / engine pin** — the `acp` subcommand exists and
+  accepts `--agent-engine` / `--model` / `--effort` / `--trust-tools`. V3 pins
+  `--agent-engine v2`; the negotiated ACP protocol version is now validated at
+  startup and fails loudly if the contract changes.
+- ✅ **Single account, many workers** — five concurrent turns on one login each ran
+  on their own worker and returned correct, independent answers. Confirmed at the
+  100-worker ceiling in tests.
+- ✅ **Token file layout** — auto-detection reads `expiresAt` from
+  `~/.aws/sso/cache` / `~/.aws/login/cache` when present (SSO), and falls back to
+  the `whoami` probe for Builder ID / social logins that keep creds under
+  `~/.kiro` without a file `expiresAt`.
+- ⏳ **>1 concurrent session per worker** — still one active turn per worker by
+  design (the safe default); revisit only if measurement shows a benefit.
 ```

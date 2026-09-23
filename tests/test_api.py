@@ -1,8 +1,6 @@
 """End-to-end API tests: boot the app against the stub, hit every protocol."""
 from __future__ import annotations
 
-import json
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 

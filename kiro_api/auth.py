@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -39,6 +40,25 @@ LOGGING_IN = "logging_in"
 LOGGED_IN = "logged_in"
 EXPIRING_SOON = "expiring_soon"
 REFRESHING = "refreshing"
+
+
+# Redact PII (email addresses) from any auth text before it is stored in state
+# or exposed on /stats, /health, or the tray. kiro-cli whoami includes the
+# account email; we never surface it. Also collapse newlines to a single line.
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def _redact(text: str) -> str:
+    if not text:
+        return text
+    text = _EMAIL_RE.sub("<redacted>", text)
+    # Drop an "Email: ..." line entirely and flatten to one line.
+    lines = [
+        ln.strip()
+        for ln in text.splitlines()
+        if ln.strip() and not ln.strip().lower().startswith("email:")
+    ]
+    return " ".join(lines)
 
 
 def _cache_dirs() -> list[Path]:
@@ -201,8 +221,9 @@ class AuthManager:
                 proc.kill()
                 return False, "whoami timed out"
             if proc.returncode == 0:
-                return True, (out or b"").decode("utf-8", "replace").strip() or "logged in"
-            return False, (err or b"").decode("utf-8", "replace").strip() or "not logged in"
+                text = (out or b"").decode("utf-8", "replace").strip()
+                return True, _redact(text) or "logged in"
+            return False, _redact((err or b"").decode("utf-8", "replace").strip()) or "not logged in"
         except FileNotFoundError:
             return False, f"kiro-cli not found at '{self.kiro_cli_bin}'"
 
@@ -288,13 +309,15 @@ class AuthManager:
             opened = False
             async for line in proc.stdout:
                 text = line.decode("utf-8", "replace")
-                chunks.append(text)
-                self._login_state["output"] = "".join(chunks)[-4000:]
+                # Extract the verification URL from the raw line, but store only
+                # an email-redacted copy so /admin/login/status never leaks PII.
                 if not opened:
                     url = _extract_url(text)
                     if url:
                         opened = True
                         _maybe_open_browser(url)
+                chunks.append(_EMAIL_RE.sub("<redacted>", text))
+                self._login_state["output"] = "".join(chunks)[-4000:]
             await proc.wait()
             self._login_state["returncode"] = proc.returncode
         except FileNotFoundError:

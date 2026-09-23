@@ -184,7 +184,8 @@ Environment variables override file values; CLI flags override both.
 |--------|------|-------------|
 | GET | `/health` | Liveness — process is up. |
 | GET | `/ready` | Readiness — logged in **and** a worker is available (200/503). |
-| GET | `/stats` | Metrics snapshot (auth, pool, endpoints). |
+| GET | `/stats` | Metrics snapshot as JSON (auth, pool, endpoints). |
+| GET | `/metrics` | Prometheus text-exposition metrics (counters + gauges). |
 | WS | `/ws/stats` | Live metrics stream (used by the tray). |
 | POST | `/admin/login` | Trigger device-flow login. |
 | GET | `/admin/login/status` | Poll login output (URL + code). |
@@ -199,6 +200,22 @@ Environment variables override file values; CLI flags override both.
 | `X-Kiro-Long: true` | Treat this request as long-running (use the long timeout tier). |
 | `X-Kiro-Workspace: /abs/path` | Working directory for the session (for tool calls). |
 | `X-Kiro-MCP-Servers: <json>` | MCP servers to register for this session (forwarded to `kiro-cli`). |
+| `X-Kiro-Effort: <level>` | Reasoning effort for this turn: `low`/`medium`/`high`/`xhigh`/`max`. |
+
+### Reasoning effort
+
+Set per request (precedence: header > body). The service maps it to `kiro-cli`'s
+`/effort` control for that session; unknown levels are ignored (the turn still
+runs).
+
+| Source | Field |
+|--------|-------|
+| Header | `X-Kiro-Effort: high` |
+| OpenAI | `"reasoning_effort": "high"` (or `"reasoning": {"effort": "high"}`) |
+| Anthropic | `"thinking": {"type": "enabled", "budget_tokens": N}` → mapped to a level by budget |
+
+Levels: `low`, `medium`, `high`, `xhigh`, `max` (OpenAI `minimal` → `low`). A
+service-wide default can be set with `KIRO_ACP_EFFORT`.
 
 ---
 
