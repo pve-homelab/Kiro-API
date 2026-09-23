@@ -122,10 +122,52 @@ def _cmd_stats(args) -> int:
     return 0
 
 
+def _config_path(args) -> Path:
+    return getattr(args, "config_file", None) or _default_config_file()
+
+
+def _persist(args, setting: str, value: str) -> int:
+    """Persist a setting to the config file and tell the user to restart."""
+    from .config import SETTABLE_KEYS, write_config_value
+    env_key = SETTABLE_KEYS.get(setting)
+    if not env_key:
+        print(f"unknown setting '{setting}'. settable: {', '.join(sorted(SETTABLE_KEYS))}",
+              file=sys.stderr)
+        return 1
+    path = _config_path(args)
+    write_config_value(path, env_key, value)
+    print(f"set {setting} = {value}  (written to {path})")
+    print("restart the service for it to take effect:  systemctl --user restart kiro-api")
+    return 0
+
+
 def _cmd_config(args) -> int:
+    action = getattr(args, "action", None)
+    if action == "set":
+        return _persist(args, args.key, args.value)
+    if action == "get":
+        cfg = _build_cfg(args)
+        val = cfg.to_dict().get(args.key)
+        if val is None and args.key not in cfg.to_dict():
+            print(f"unknown setting '{args.key}'", file=sys.stderr)
+            return 1
+        print(val)
+        return 0
+    if action == "path":
+        print(_config_path(args))
+        return 0
+    # default: show the full effective config
     cfg = _build_cfg(args)
     print(json.dumps(cfg.to_dict(), indent=2))
     return 0
+
+
+def _cmd_set_host(args) -> int:
+    return _persist(args, "host", args.host)
+
+
+def _cmd_set_port(args) -> int:
+    return _persist(args, "port", str(args.port))
 
 
 def _cmd_models(args) -> int:
@@ -221,9 +263,30 @@ def build_parser() -> argparse.ArgumentParser:
     _add_common(stats_p)
     stats_p.set_defaults(func=_cmd_stats)
 
-    config_p = sub.add_parser("config", help="show effective config")
+    config_p = sub.add_parser("config", help="show or change saved config (host, port, …)")
     _add_common(config_p)
+    config_sub = config_p.add_subparsers(dest="action")
+    cfg_set = config_sub.add_parser("set", help="save a setting to the config file")
+    cfg_set.add_argument("key", help="setting name (e.g. host, port, auth_key, max_workers)")
+    cfg_set.add_argument("value", help="value to save")
+    _add_common(cfg_set)
+    cfg_get = config_sub.add_parser("get", help="print one saved/effective setting")
+    cfg_get.add_argument("key")
+    _add_common(cfg_get)
+    cfg_path = config_sub.add_parser("path", help="print the config file path")
+    _add_common(cfg_path)
     config_p.set_defaults(func=_cmd_config)
+
+    # Convenience shortcuts for the two most common changes (host / port).
+    sethost_p = sub.add_parser("set-host", help="change the bind address (any IP; default 127.0.0.1)")
+    sethost_p.add_argument("host", help="e.g. 0.0.0.0, 192.168.1.20, or localhost")
+    _add_common(sethost_p)
+    sethost_p.set_defaults(func=_cmd_set_host)
+
+    setport_p = sub.add_parser("set-port", help="change the port (default 8787)")
+    setport_p.add_argument("port", type=int, help="e.g. 9000")
+    _add_common(setport_p)
+    setport_p.set_defaults(func=_cmd_set_port)
 
     models_p = sub.add_parser("models", help="list models from kiro-cli")
     _add_common(models_p)

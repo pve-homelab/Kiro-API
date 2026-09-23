@@ -79,3 +79,42 @@ def test_validate_bind_rejects_unresolvable_host():
     cfg.port = 8787
     with pytest.raises(BindError):
         cfg.validate_bind()
+
+
+def test_write_config_value_creates_and_updates(tmp_path):
+    from kiro_api.config import load_config_file, write_config_value
+
+    path = tmp_path / "sub" / "config.env"
+    write_config_value(path, "KIRO_API_HOST", "0.0.0.0")
+    write_config_value(path, "KIRO_API_PORT", "9000")
+    loaded = load_config_file(path)
+    assert loaded["KIRO_API_HOST"] == "0.0.0.0"
+    assert loaded["KIRO_API_PORT"] == "9000"
+
+    # Updating an existing key replaces it, doesn't duplicate.
+    write_config_value(path, "KIRO_API_PORT", "9100")
+    text = path.read_text()
+    assert text.count("KIRO_API_PORT=") == 1
+    assert load_config_file(path)["KIRO_API_PORT"] == "9100"
+
+
+def test_settable_keys_cover_host_and_port():
+    from kiro_api.config import SETTABLE_KEYS
+
+    assert SETTABLE_KEYS["host"] == "KIRO_API_HOST"
+    assert SETTABLE_KEYS["port"] == "KIRO_API_PORT"
+
+
+def test_saved_config_is_read_back(tmp_path, monkeypatch):
+    from kiro_api.config import build_config, write_config_value
+
+    # Ensure env doesn't shadow the file for this test.
+    monkeypatch.delenv("KIRO_API_PORT", raising=False)
+    monkeypatch.delenv("KIRO_API_HOST", raising=False)
+    path = tmp_path / "config.env"
+    write_config_value(path, "KIRO_API_PORT", "9000")
+    write_config_value(path, "KIRO_API_HOST", "0.0.0.0")
+    # build_config seeds env from the file (env not already set wins).
+    cfg = build_config(config_file=path)
+    assert cfg.port == 9000
+    assert cfg.host == "0.0.0.0"

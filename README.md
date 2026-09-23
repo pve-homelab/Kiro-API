@@ -50,7 +50,9 @@ Then point your tool at `http://localhost:8787/v1` (OpenAI) or
 | `kiro-api login` | Sign in to Kiro (device flow; opens your browser). |
 | `kiro-api status` | Colored health dot + auth/pool/endpoints. |
 | `kiro-api stats [--json]` | Metrics for scripting. |
-| `kiro-api config` | Show effective configuration. |
+| `kiro-api config` | Show effective configuration (`config set KEY VALUE` / `config get KEY` to change/read). |
+| `kiro-api set-host <ip>` | Change the bind address (persisted; e.g. `0.0.0.0` or a LAN IP). |
+| `kiro-api set-port <port>` | Change the port (persisted; default `8787`). |
 | `kiro-api models` | List available models. |
 | `kiro-api install-service [--user]` | Install/enable the systemd service. |
 | `kiro-api acp` | Run as an ACP stdio agent for ACP-native editors. |

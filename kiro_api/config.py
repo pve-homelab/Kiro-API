@@ -160,6 +160,45 @@ def load_config_file(path: Path) -> dict:
     return result
 
 
+# Friendly setting name → environment-variable key. Used by `kiro-api config set`
+# and the `set-host` / `set-port` shortcuts so users don't need to know env names.
+SETTABLE_KEYS = {
+    "host": "KIRO_API_HOST",
+    "port": "KIRO_API_PORT",
+    "advertised_host": "KIRO_API_ADVERTISED_HOST",
+    "auth_key": "KIRO_API_AUTH_KEY",
+    "max_workers": "KIRO_API_MAX_WORKERS",
+    "min_workers": "KIRO_API_MIN_WORKERS",
+    "max_queue": "KIRO_API_MAX_QUEUE",
+    "default_model": "KIRO_API_DEFAULT_MODEL",
+    "kiro_cli_bin": "KIRO_CLI_BIN",
+    "log_format": "KIRO_API_LOG_FORMAT",
+    "log_level": "KIRO_API_LOG_LEVEL",
+}
+
+
+def write_config_value(path: Path, env_key: str, value: str) -> None:
+    """Persist a single KEY=VALUE into the config file, replacing any existing
+    line for that key. Creates the file/parent dir if needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    new_line = f"{env_key}={value}"
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key == env_key:
+                lines[i] = new_line
+                replaced = True
+                break
+    if not replaced:
+        lines.append(new_line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def build_config(config_file: Path | None = None, **cli_overrides) -> Config:
     """Build config honoring precedence CLI > env > file > defaults."""
     # File values seed the environment only where env is unset (so env wins over file).

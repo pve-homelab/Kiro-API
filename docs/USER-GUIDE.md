@@ -152,18 +152,35 @@ Machine-readable: `kiro-api stats --json`, or `curl http://localhost:8787/health
 
 ## Change host / port
 
-Set them and restart — the service validates the bind first, so a bad value fails
-cleanly instead of half-starting.
+The default endpoint is `localhost:8787`. To change it, use the dedicated
+commands — they save the value to the config file so it survives restarts:
 
 ```bash
-# one-off:
-kiro-api serve -H 0.0.0.0 -p 9000
-
-# persistent (config file):
-mkdir -p ~/.config/kiro-api
-printf 'KIRO_API_HOST=0.0.0.0\nKIRO_API_PORT=9000\n' >> ~/.config/kiro-api/config.env
-systemctl --user restart kiro-api
+kiro-api set-host 0.0.0.0     # bind on all interfaces (LAN access)
+kiro-api set-port 9000        # change the port
+systemctl --user restart kiro-api   # apply
 ```
+
+You can also set any other saved setting with `config set`, and read one back
+with `config get`:
+
+```bash
+kiro-api config set auth_key my-secret
+kiro-api config get port      # -> 9000
+kiro-api config               # show everything
+kiro-api config path          # where the config file lives
+```
+
+Or override just for one run without saving:
+
+```bash
+kiro-api serve -H 0.0.0.0 -p 9000
+```
+
+The service validates the bind before starting, so a bad or in-use address fails
+cleanly instead of half-starting. `0.0.0.0` exposes it on your LAN — only do that
+on a trusted network, and consider setting an auth key
+(`kiro-api config set auth_key <key>`).
 
 `0.0.0.0` exposes it on your LAN — only do that on a trusted network, and
 consider setting `KIRO_API_AUTH_KEY`.

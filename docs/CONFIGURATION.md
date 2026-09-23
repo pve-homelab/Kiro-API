@@ -102,9 +102,24 @@ kiro-api config
 | `--log-level` | `KIRO_API_LOG_LEVEL` | Available on every subcommand. |
 | `--config-file` | — | Path to a config file (default `~/.config/kiro-api/config.env`). |
 
-Other subcommands: `login`, `status`, `stats [--json]`, `config`, `models`,
-`acp`, `install-service [--user] [--uninstall]`, `version`. `--help` works
-top-level and per subcommand.
+### Changing saved settings
+
+| Command | Effect |
+|---------|--------|
+| `kiro-api set-host <ip>` | Persist the bind address (e.g. `0.0.0.0`, a LAN IP, `localhost`). |
+| `kiro-api set-port <port>` | Persist the port. |
+| `kiro-api config set <key> <value>` | Persist any settable key (`host`, `port`, `advertised_host`, `auth_key`, `max_workers`, `min_workers`, `max_queue`, `default_model`, `kiro_cli_bin`, `log_format`, `log_level`). |
+| `kiro-api config get <key>` | Print the effective value of one setting. |
+| `kiro-api config` | Print the full effective configuration (JSON). |
+| `kiro-api config path` | Print the config file location. |
+
+These write to the config file (default `~/.config/kiro-api/config.env`); restart
+the service to apply. Environment variables and `serve` flags still override saved
+values at runtime.
+
+Other subcommands: `login`, `status`, `stats [--json]`, `models`, `acp`,
+`install-service [--user] [--uninstall]`, `version`. `--help` works top-level and
+per subcommand.
 
 ---
 
