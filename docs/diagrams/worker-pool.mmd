@@ -1,0 +1,23 @@
+%% Kiro-API V3 — elastic worker pool lifecycle
+stateDiagram-v2
+    [*] --> Idle: prewarm min_workers
+    Idle --> Leased: lease() — fast path (slot free)
+    [*] --> Spawning: no idle worker + under max_workers
+    Spawning --> Leased: kiro-cli acp started + initialized
+    Leased --> Running: session/new + session/prompt
+    Running --> Idle: turn done → return to pool
+    Running --> Dead: idle/turn timeout, crash, or EOF
+    Dead --> [*]: killed (process group) + replaced
+    Idle --> Retired: idle_timeout exceeded and total > min_workers
+    Retired --> [*]
+
+    note right of Running
+        one active turn per worker
+        → N workers = N-way parallelism
+        (typical ~10, max ~100)
+    end note
+    note right of Leased
+        beyond max_workers requests
+        wait in a bounded queue;
+        queue full → 503 / 429
+    end note

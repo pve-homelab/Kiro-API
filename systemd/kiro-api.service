@@ -1,0 +1,26 @@
+# Kiro-API V3 systemd unit (template).
+# Install via:  kiro-api install-service         (system, needs sudo)
+#           or:  kiro-api install-service --user  (per-user)
+# This file is a reference; `install-service` generates one with the resolved
+# ExecStart path for your environment.
+[Unit]
+Description=Kiro-API V3 — OpenAI/Anthropic/ACP gateway for kiro-cli
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/kiro-api serve
+Restart=on-failure
+RestartSec=2
+WatchdogSec=30
+TimeoutStopSec=25
+KillMode=mixed
+TasksMax=2048
+LimitNOFILE=65536
+Environment=KIRO_API_LOG_FORMAT=json
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

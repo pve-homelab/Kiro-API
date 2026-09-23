@@ -1,131 +1,90 @@
-# Kiro-API V2
+# Kiro-API V3
 
-A Dockerized, OpenAI-compatible `/v1` API backed by the **Kiro CLI** (`kiro-cli`), with a
-host-side system-tray agent, a slim live dashboard, and dual Docker Compose configurations
-(standard + fully bundled/airgapped).
+**Use your Kiro subscription from the AI tools you already use.** Kiro-API V3 is a
+small Linux service that turns the official **Kiro CLI** into OpenAI-, Anthropic-,
+and ACP-compatible HTTP endpoints — so any compatible harness (Herdr driving
+pi/omp/Hermes, Cursor, Claude Code, OpenCode, Kilo Code, …) can use Kiro as its
+model.
 
-Your app → `http://localhost:8787/v1/chat/completions` → `kiro-cli chat --no-interactive`
+```mermaid
+flowchart LR
+    A["Your AI tools<br/>(OpenAI / Anthropic / ACP)"] -->|http://localhost:8787| B["Kiro-API V3<br/>(pool of kiro-cli workers)"]
+    B -->|official kiro-cli| C["Kiro backend"]
+```
 
-This is the V2 successor to the Rust/Ratatui [Kiro-API](https://github.com/pve-homelab/Kiro-API)
-TUI. V2 trades the TUI for a container + host tray agent so it runs the same way every time
-with no toolchain fights, and is easy to share with coworkers by handing them one image.
+## What it's for
 
----
+You have a Kiro login and tools that speak OpenAI/Anthropic. This service is the
+bridge — one local endpoint, your existing subscription, no credential juggling.
+It's built to run **many agents at once** (≈10 typical, up to ~100 for stress
+tests) as a reliable, always-on service.
 
-## Why two pieces?
+## What it can do
 
-| Piece | Runs where | Responsibility |
-|-------|-----------|----------------|
-| **`kiro-api` container** | Docker | OpenAI-compatible `/v1` endpoints, dashboard, kiro-cli job pool |
-| **`kiro-tray` agent** | Host (Ubuntu workspace) | System-tray icon, status dot, endpoint clipboard menu, login button, port/address change, auth toggle |
+- **Speaks three protocols** on one endpoint: OpenAI (`/v1/chat/completions`,
+  `/v1/responses`, `/v1/models`), Anthropic (`/v1/messages`), and native **ACP**.
+- **Real streaming** with reasoning and tool-activity surfaced, plus keepalives so
+  long tool calls don't time out.
+- **MCP passthrough** — your harness's MCP servers are forwarded to Kiro CLI.
+- **Runs many agents in parallel** via an elastic pool of `kiro-cli` workers.
+- **Self-healing auth** — it refreshes your token *before* it expires, so it never
+  gets stuck on a stale login; if logged out it stays up and recovers on re-login.
+- **A real service** — installs under systemd with auto-restart and a watchdog;
+  configurable host/port that never crash-loops on a bad value.
 
-A container cannot draw a Linux system-tray icon (that needs host D-Bus / AppIndicator access),
-so the tray icon is a thin host-side Python app that controls and monitors the container.
-
----
-
-## Ports
-
-| Service | Port | Notes |
-|---------|------|-------|
-| API (`/v1`) | `8787` | Default; changeable from the tray |
-| Dashboard | `8788` | Live status page |
-
-Both bind to `localhost` only.
-
----
-
-## Quick links
-
-- **[Quick Start Guide](docs/QUICK-START-GUIDE.md) — start here: pull, configure, deploy, and the dots/tray/dashboard reference**
-- [Architecture & workflows](docs/ARCHITECTURE.md) — diagrams for system, request, login, port-change, and deployment flows
-- [Deployment guide](docs/DEPLOYMENT.md) — standard + airgapped bundle, tray setup, client usage
-- [Configuration & API reference](docs/CONFIGURATION.md) — every env var and endpoint
-- [Airgapped dependency list](docs/DEPENDENCIES.md) — exact artifacts to stage
-
-## Quick start (standard)
+## Quick start
 
 ```bash
-cp .env.example .env          # set HOST_KIRO_* paths for your box
-docker compose up -d --build
-curl -s http://127.0.0.1:8787/health
-# dashboard: http://127.0.0.1:8788
+pip install -e .                 # installs the `kiro-api` command
+kiro-api login                   # sign in to Kiro (device flow)
+kiro-api install-service --user  # run it as a background service
 ```
 
-Airgapped single-artifact path (bundle image): see
-[DEPLOYMENT.md](docs/DEPLOYMENT.md#bundle-configuration-airgapped).
+Then point your tool at `http://localhost:8787/v1` (OpenAI) or
+`http://localhost:8787` (Anthropic), model `auto`. Full walkthrough:
+**[User Guide](docs/USER-GUIDE.md)**.
 
-### Pulling from Harbor or Artifactory
+## Commands
 
-The CI pipeline publishes both images with immutable commit tags and a `latest`
-tag from the default branch:
+| Command | What it does |
+|---------|--------------|
+| `kiro-api serve` | Run the HTTP service (`-H` host, `-p` port, `--workers N`). |
+| `kiro-api login` | Sign in to Kiro (device flow; opens your browser). |
+| `kiro-api status` | Colored health dot + auth/pool/endpoints. |
+| `kiro-api stats [--json]` | Metrics for scripting. |
+| `kiro-api config` | Show effective configuration. |
+| `kiro-api models` | List available models. |
+| `kiro-api install-service [--user]` | Install/enable the systemd service. |
+| `kiro-api acp` | Run as an ACP stdio agent for ACP-native editors. |
+| `kiro-api version` | Versions. |
 
-```bash
-docker login harbor.example.com
-IMAGE_REPOSITORY=harbor.example.com/kiro/kiro-api IMAGE_TAG=latest \
-  docker compose pull
-IMAGE_REPOSITORY=harbor.example.com/kiro/kiro-api-bundle IMAGE_TAG=latest \
-  docker compose -f docker-compose.bundle.yml pull
-```
+`kiro-api --help` (and `--help` on any command) shows all options.
 
-Set `IMAGE_REPOSITORY` to the full repository path in Harbor or Artifactory.
-The pipeline uses the same `IMAGE_REPOSITORY` variable and masked
-`REGISTRY_USER`/`REGISTRY_PASSWORD` variables to publish both standard and
-bundled images.
+## Status at a glance
 
-## Testing & CI
+| Dot | Meaning |
+|-----|---------|
+| 🟢 GREEN | online and healthy |
+| 🟡 YELLOW | up but not logged in → `kiro-api login` |
+| 🟠 ORANGE | up but at capacity |
+| 🔴 RED | not reachable |
 
-```bash
-scripts/run_tests.sh        # lint (ruff) + unit + integration in a container
-```
+## Documentation
 
-- **Unit tests** (`pytest -m "not integration"`) — pure logic, no app boot.
-- **Integration tests** (`pytest -m integration`) — run the app against the
-  kiro-cli stub via FastAPI TestClient (no real auth, no Docker needed).
-- **CI** — `.gitlab-ci.yml` runs lint → unit → integration → build image, written
-  for an **airgapped self-hosted GitLab** (internal registry + wheelhouse; see the
-  variables at the top of the file).
-- **Real kiro-cli validation** stays manual on the workspace (CI runners can't
-  do interactive login) — see [DEPLOYMENT.md](docs/DEPLOYMENT.md).
+- **[User Guide](docs/USER-GUIDE.md)** — install, log in, wire up your tools, troubleshoot.
+- **[Architecture](docs/ARCHITECTURE.md)** — how it works, the concurrency model, what it solves and its limits, with diagrams.
+- **[Configuration & API Reference](docs/CONFIGURATION.md)** — every setting and endpoint.
+- **[Dependencies](docs/DEPENDENCIES.md)** — what it needs.
+- **[V3 Design](docs/V3-DESIGN.md)** — the design record.
 
-## What's in V2 vs V1
+## Requirements
 
-| | V1 (Rust TUI) | V2 (this) |
-|-|---------------|-----------|
-| Runtime | `cargo run` on host | Docker container |
-| Control surface | terminal TUI | host tray icon + web dashboard |
-| Sharing | build from source | hand over one image |
-| Endpoints | `/v1/*` | `/v1/*` (same) + admin API |
-| Concurrency | pool | pool tuned for 50+ agents + queue |
-| Long-run safety | — | reaper: zombie reap, leak watch, GC |
-| Clean shutdown | — | drains in-flight jobs on stop, no ghost processes |
-| Configs | one | standard + airgapped bundle |
+Python 3.11+, a Linux host (for the service), and the official **Kiro CLI**
+installed and logged in. Three runtime dependencies (`fastapi`, `uvicorn`,
+`pydantic`). See [Dependencies](docs/DEPENDENCIES.md).
 
----
+## Compliance
 
-## Status dot (tray icon)
-
-| Color | Meaning |
-|-------|---------|
-| 🔴 Red | API not running |
-| 🟡 Yellow | Running but not logged in to kiro-cli |
-| 🟠 Orange | Error — check the dashboard |
-| 🟢 Green | Online and healthy |
-
----
-
-## Layout
-
-```
-kiro-api-docker/
-├── app/                 # FastAPI service (runs in the container)
-├── tray/                # Host system-tray agent
-├── docker/              # Dockerfiles
-├── scripts/             # kiro-cli stub, helpers
-├── docs/                # Architecture, deployment, dependencies, diagrams
-├── docker-compose.yml           # Standard config
-├── docker-compose.bundle.yml    # Single self-contained image (airgapped)
-└── .env.example
-```
-
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) to get started.
+Talks to Kiro **only** through the official `kiro-cli` binary — no private
+endpoints, no account pooling, no credential handling. Your use of Kiro CLI is
+governed by its own license.

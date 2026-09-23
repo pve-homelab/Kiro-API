@@ -1,63 +1,40 @@
-"""Shared pytest fixtures.
-
-The app reads configuration from environment variables at import time, so the
-environment (including pointing KIRO_CLI_BIN at the offline stub) must be set
-BEFORE any app module is imported. We do that at collection time here, then
-import app modules lazily inside fixtures.
-
-No real kiro-cli and no Docker are required — everything runs against
-scripts/kiro-cli-stub.sh.
-"""
+"""Test fixtures. Wires the ACP stub as `kiro-cli` so the whole stack runs
+without real auth or network."""
 from __future__ import annotations
 
 import os
-import stat
+import sys
 from pathlib import Path
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-STUB = PROJECT_ROOT / "scripts" / "kiro-cli-stub.sh"
-
-
-def _ensure_stub_executable() -> None:
-    if STUB.exists():
-        mode = STUB.stat().st_mode
-        STUB.chmod(mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-
-# Set env before app import. pytest imports conftest very early, so module-level
-# assignment here runs before test modules import app.*.
-os.environ.setdefault("KIRO_CLI_BIN", str(STUB))
-os.environ.setdefault("KIRO_STUB_LOGGED_IN", "1")
-os.environ.setdefault("KIRO_STUB_DELAY", "0")
-os.environ.setdefault("KIRO_CLI_WORKSPACE", "/tmp")
-os.environ.setdefault("KIRO_API_MAX_CONCURRENCY", "4")
-os.environ.setdefault("KIRO_API_TIMEOUT_SHORT", "15")
-_ensure_stub_executable()
-
-
-@pytest.fixture(scope="session")
-def stub_path() -> Path:
-    return STUB
+REPO = Path(__file__).resolve().parent.parent
+STUB = REPO / "scripts" / "kiro-cli-acp-stub.py"
 
 
 @pytest.fixture
-def client():
-    """A FastAPI TestClient with the app lifespan (reaper) active."""
-    _ensure_stub_executable()
-    from fastapi.testclient import TestClient
+def stub_bin() -> str:
+    """A shell-invocable 'kiro-cli' that runs our stub via the current Python.
 
-    from app.main import app
+    We return a small wrapper script path so argv[0] semantics match a real
+    binary (the worker calls it with subcommands).
+    """
+    wrapper = REPO / "scripts" / "_kiro_cli_stub_wrapper.sh"
+    wrapper.write_text(
+        f'#!/usr/bin/env bash\nexec "{sys.executable}" "{STUB}" "$@"\n',
+        encoding="utf-8",
+    )
+    os.chmod(wrapper, 0o755)
+    return str(wrapper)
 
-    with TestClient(app) as c:
-        yield c
 
-
-@pytest.fixture(autouse=True)
-def _reset_auth():
-    """Ensure each test starts with auth disabled (some tests toggle it)."""
-    from app.config import config
-    config.auth_key = ""
-    yield
-    config.auth_key = ""
+@pytest.fixture
+def config(stub_bin, monkeypatch):
+    from kiro_api.config import Config
+    monkeypatch.setenv("KIRO_CLI_BIN", stub_bin)
+    cfg = Config()
+    cfg.kiro_cli_bin = stub_bin
+    cfg.min_workers = 0
+    cfg.max_workers = 4
+    cfg.auth_poll_interval = 1
+    return cfg

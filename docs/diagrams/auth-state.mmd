@@ -1,0 +1,27 @@
+%% Kiro-API V3 — self-healing auth state machine
+stateDiagram-v2
+    [*] --> Unknown
+    Unknown --> LoggedIn: whoami ok + token valid
+    Unknown --> LoggedOut: whoami fails / no token
+
+    LoggedOut --> LoggingIn: kiro-api login (device flow)
+    LoggingIn --> LoggedIn: device approved, token cached
+    LoggingIn --> LoggedOut: login failed / timed out
+
+    LoggedIn --> ExpiringSoon: expiresAt within refresh_margin
+    ExpiringSoon --> Refreshing: watchdog triggers proactive refresh
+    Refreshing --> LoggedIn: refresh succeeded (new expiresAt)
+    Refreshing --> LoggedOut: refresh not possible (re-login needed)
+
+    LoggedIn --> LoggedOut: token expired / revoked
+
+    note right of ExpiringSoon
+        the fix for V2's "stuck on a
+        stale token": refresh BEFORE
+        any worker uses it
+    end note
+    note right of LoggedOut
+        service stays UP (never crashes);
+        requests get 401; tray = yellow;
+        auto-recovers on re-login
+    end note

@@ -1,6 +1,0 @@
-# Kiro-API V2 — host tray agent dependencies
-# Installed on the Ubuntu workspace host (not in the container).
-# See docs/DEPENDENCIES.md for airgapped notes.
-pystray==0.19.5
-Pillow==11.1.0
-requests==2.32.3

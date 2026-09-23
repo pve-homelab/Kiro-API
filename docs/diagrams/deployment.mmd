@@ -1,27 +1,22 @@
-flowchart LR
-    subgraph BUILD["Internet-connected staging box"]
-        WHEELS["pip download<br/>-> wheelhouse/"]
-        BASEIMG["docker pull<br/>python:3.12-slim"]
-        KIROBIN["obtain kiro-cli<br/>binary -> vendor/"]
-        SAVE["docker build bundle<br/>docker save -> tar.gz"]
+%% Kiro-API V3 — deployment on a Linux host
+flowchart TB
+    subgraph host["Linux host (dev / semi-prod)"]
+        subgraph systemd["systemd (Type=notify + WatchdogSec + Restart=on-failure)"]
+            SVC["kiro-api serve\n(elastic worker pool)"]
+        end
+        TRAY["kiro-api-tray\n(optional, read-only:\ndots + copy endpoints)"]
+        CLI["operator CLI\nlogin · status · stats · config"]
+        CREDS["~/.aws/sso/cache · ~/.kiro\n(single account, shared read)"]
+        KCLI["kiro-cli binary"]
+        JOURNAL["journald logs"]
     end
 
-    subgraph TRANSFER["Manual transfer (airgap)"]
-        TAR["kiro-api-bundle-2.0.0.tar.gz"]
-    end
+    NET["clients on localhost or LAN\n(any bind IP / port)"]
 
-    subgraph AIRGAP["Airgapped Ubuntu workspace"]
-        LOAD["docker load"]
-        COMPOSE["docker compose -f<br/>docker-compose.bundle.yml up -d"]
-        TRAYRUN["tray/run-tray.sh"]
-        RUNNING["kiro-api :8787 /v1<br/>dashboard :8788<br/>ghost tray icon"]
-    end
-
-    WHEELS --> SAVE
-    BASEIMG --> SAVE
-    KIROBIN --> SAVE
-    SAVE --> TAR
-    TAR --> LOAD
-    LOAD --> COMPOSE
-    COMPOSE --> RUNNING
-    TRAYRUN --> RUNNING
+    SVC -->|spawns| KCLI
+    SVC -->|reads| CREDS
+    SVC -->|logs| JOURNAL
+    TRAY -->|GET /stats| SVC
+    CLI -->|GET /health /stats| SVC
+    NET -->|HTTP| SVC
+    systemd -->|restart on crash / watchdog timeout| SVC

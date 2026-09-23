@@ -1,0 +1,41 @@
+%% Kiro-API V3 — high-level system architecture
+flowchart TB
+    subgraph clients["AI harnesses / clients"]
+        H1["Herdr → pi / omp / Hermes"]
+        H2["Cursor · Claude Code · OpenCode · Kilo Code"]
+    end
+
+    subgraph svc["Kiro-API V3 service (systemd, one process)"]
+        direction TB
+        HTTP["HTTP layer (uvicorn / FastAPI)\nOpenAI · Anthropic · ACP shims\nMCP passthrough"]
+        SCHED["Scheduler\nbounded queue + backpressure"]
+        subgraph POOL["Elastic worker pool"]
+            W1["worker 1"]
+            W2["worker 2"]
+            W3["worker N"]
+        end
+        AUTH["AuthManager\ntoken-expiry watchdog\ndevice-flow login"]
+        SUP["Supervisor / reaper\nhealth-check + replace"]
+    end
+
+    subgraph cli["kiro-cli acp subprocesses (one per worker)"]
+        C1["kiro-cli acp"]
+        C2["kiro-cli acp"]
+        C3["kiro-cli acp"]
+    end
+
+    KIRO["Kiro backend\n(official, authenticated)"]
+
+    H1 --> HTTP
+    H2 --> HTTP
+    HTTP --> SCHED
+    SCHED -->|lease a worker| POOL
+    W1 --- C1
+    W2 --- C2
+    W3 --- C3
+    C1 --> KIRO
+    C2 --> KIRO
+    C3 --> KIRO
+    AUTH -. gates dispatch .-> SCHED
+    SUP -. restarts .-> POOL
+    AUTH -->|reads ~/.aws/sso/cache expiresAt| KIRO

@@ -1,26 +1,33 @@
+%% Kiro-API V3 — request lifecycle (one chat turn)
 sequenceDiagram
     autonumber
-    participant App as Client app / agent
-    participant API as FastAPI /v1
-    participant Pool as Concurrency pool
-    participant Reaper as Reaper
-    participant CLI as kiro-cli
+    participant C as Client (harness)
+    participant R as Route shim (OpenAI/Anthropic/ACP)
+    participant S as ShimService
+    participant A as AuthManager
+    participant P as WorkerPool
+    participant W as ACP worker (kiro-cli acp)
 
-    App->>API: POST /v1/chat/completions
-    API->>API: flatten messages -> prompt
-    API->>Pool: acquire slot (semaphore)
-    alt queue full and reject_when_busy
-        Pool-->>API: BusyError
-        API-->>App: 429 Too Many Requests
-    else slot acquired
-        Pool->>CLI: spawn chat --no-interactive (prompt on stdin)
-        Pool->>Reaper: track(pid, hard deadline)
-        alt completes in time
-            CLI-->>Pool: stdout (reply)
-        else timeout / client disconnect
-            Pool->>CLI: SIGKILL process group
+    C->>R: POST /v1/chat/completions (or /v1/messages, /acp/chat)
+    R->>S: normalized messages + model + MCP servers
+    S->>A: auth gate (logged in?)
+    alt not logged in
+        A-->>S: LOGGED_OUT
+        S-->>C: 401 authentication_error (native shape)
+    else logged in
+        S->>P: lease(worker, timeout)
+        alt pool saturated + queue full
+            P-->>S: OVERLOADED
+            S-->>C: 503 / 429 + Retry-After
+        else worker leased
+            P-->>S: worker
+            S->>W: session/new (cwd, mcpServers) → session/prompt
+            loop streaming events (idle-timeout bounded)
+                W-->>S: text / thinking / tool_call / plan
+                S-->>C: SSE delta (+ keepalive when idle)
+            end
+            W-->>S: done (stopReason)
+            S-->>C: final chunk + [DONE]
+            P->>P: return worker to idle (or retire if dead)
         end
-        Pool->>Reaper: untrack(pid) + reap
-        Pool-->>API: text + token estimate
-        API-->>App: OpenAI chat.completion (or SSE stream)
     end

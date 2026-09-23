@@ -28,3 +28,7 @@ Thumbs.db
 # Runtime
 logs/
 *.log
+
+# V3 transient audit artifacts
+*-results.txt
+scripts/_kiro_cli_stub_wrapper.sh
