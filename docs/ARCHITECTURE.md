@@ -42,6 +42,10 @@ points in the previous version (V2):
 
 ## System overview
 
+![System architecture](diagrams/system.png)
+
+<details><summary>Diagram source (mermaid)</summary>
+
 ```mermaid
 flowchart TB
     subgraph clients["AI harnesses / clients"]
@@ -71,6 +75,7 @@ flowchart TB
     AUTH -. gates dispatch .-> SCHED
     SUP -. restarts .-> POOL
 ```
+</details>
 
 The whole service is a **single Python process** (one `uvicorn` event loop)
 supervised by systemd. It spawns N `kiro-cli acp` **subprocesses** — the worker
@@ -123,6 +128,10 @@ single-subprocess design (no parallelism) can offer on its own.
 
 ## Request lifecycle
 
+![Request lifecycle](diagrams/request-flow.png)
+
+<details><summary>Diagram source (mermaid)</summary>
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -155,6 +164,7 @@ sequenceDiagram
         end
     end
 ```
+</details>
 
 Every turn: **auth gate** (fail fast with a native `401` if not logged in) →
 **lease a worker** (bounded wait; `503`/`429` if the pool is saturated and the
@@ -165,6 +175,10 @@ with keepalives during silence → **done**, worker returned to the pool.
 ---
 
 ## Concurrency model
+
+![Worker pool lifecycle](diagrams/worker-pool.png)
+
+<details><summary>Diagram source (mermaid)</summary>
 
 ```mermaid
 stateDiagram-v2
@@ -179,6 +193,7 @@ stateDiagram-v2
     Idle --> Retired: idle_timeout and total > min_workers
     Retired --> [*]
 ```
+</details>
 
 - **Elastic sizing.** Workers are spawned lazily on demand up to `max_workers`
   and retired after `worker_idle_timeout` down to `min_workers`. So ~10 agents
@@ -206,6 +221,10 @@ healthy turns.
 
 ## Self-healing authentication
 
+![Auth state machine](diagrams/auth-state.png)
+
+<details><summary>Diagram source (mermaid)</summary>
+
 ```mermaid
 stateDiagram-v2
     [*] --> Unknown
@@ -219,6 +238,7 @@ stateDiagram-v2
     Refreshing --> LoggedOut: re-login needed
     LoggedIn --> LoggedOut: expired / revoked
 ```
+</details>
 
 The `AuthManager` is the **single authoritative auth actor** and the only
 component that triggers a refresh or login, so the shared single-account
@@ -315,22 +335,29 @@ normalized message list and translate a normalized event stream back out.
 
 - **Single account, many workers.** V3 uses one Kiro/AWS login shared read-only
   across all workers, with a single refresh actor. It does **not** pool accounts.
-  Kiro's backend associates a session with an OIDC client registration; running
-  many concurrent `kiro-cli acp` workers off one login is the intended model here,
-  but the exact concurrency behaviour of one account should be validated against a
-  real binary under load (see the smoke-test note in the user guide).
-- **The ACP wire format is an evolving surface.** `kiro-cli login`/`chat` are
-  documented by AWS, but the `kiro-cli acp` JSON-RPC surface is not yet in
-  official public docs; V3's ACP client follows the ACP/Zed protocol as
-  implemented by `kiro-cli` and cross-checked against the kiro-gateway project. It
-  is pinned to `--agent-engine v2` (the v3 engine needs host-mediated auth V3 does
-  not implement).
+  Running many concurrent `kiro-cli acp` workers off one login is **verified to
+  work**: against a real logged-in `kiro-cli` 2.23.1, five parallel turns each ran
+  on their own worker and returned correct independent answers. Throughput is
+  still ultimately bounded by the account's server-side rate limits (below).
 - **Token usage is estimated.** `kiro-cli` does not report token counts over ACP
   today, so usage is a heuristic (~4 chars/token). The code surfaces real counts
   automatically if a future `kiro-cli` provides them.
 - **Throughput is bounded by the Kiro account's rate limits**, not by the worker
   count — 100 workers do not grant 100× the account's server-side quota.
+- **Auth expiry detection depends on the login type.** For IAM Identity Center /
+  SSO logins, the token cache exposes an `expiresAt` the watchdog reads to refresh
+  *proactively*. For AWS Builder ID / social logins (e.g. Google), the credentials
+  live under `~/.kiro` without a file `expiresAt` the watchdog can read, so expiry
+  is detected reactively via the `kiro-cli whoami` probe and recovered by
+  re-login. Either way the service never gets stuck on a stale token; the SSO path
+  simply refreshes earlier.
 - **Linux only.** systemd integration targets Linux; macOS/launchd is out of scope.
+
+> **Verified against `kiro-cli` 2.23.1 (real, logged in):** the `acp` subcommand
+> and its `--agent-engine` / `--model` / `--trust-tools` flags exist as expected;
+> `session/new` returns the live model catalogue; OpenAI, Anthropic, and streaming
+> responses all round-trip correctly; five concurrent turns succeed on one
+> account; and `SIGTERM` leaves zero orphaned `kiro-cli acp` processes.
 
 ---
 

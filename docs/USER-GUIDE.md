@@ -79,6 +79,9 @@ as a service (below).
 
 This makes it start on boot, restart on crash, and self-heal auth.
 
+![Deployment on a Linux host](diagrams/deployment.png)
+
+
 ```bash
 # per-user service (no sudo):
 kiro-api install-service --user
@@ -211,9 +214,11 @@ the service — use the CLI for that.
 
 ## Validate against a real kiro-cli
 
-The test suite runs against a built-in stub, so it needs no real login. Before
-trusting the ACP wire format on a machine that has a real, logged-in `kiro-cli`,
-do a quick end-to-end smoke test:
+The test suite runs against a built-in stub, so it needs no real login. The full
+stack has also been verified end to end against a real logged-in `kiro-cli`
+2.23.1 (OpenAI + Anthropic + streaming responses, five concurrent turns on one
+account, and a clean `SIGTERM` shutdown with no orphaned processes). To confirm it
+on your own machine, do a quick smoke test:
 
 ```bash
 kiro-cli --version          # confirm it's installed

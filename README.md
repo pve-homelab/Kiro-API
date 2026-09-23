@@ -6,11 +6,9 @@ and ACP-compatible HTTP endpoints — so any compatible harness (Herdr driving
 pi/omp/Hermes, Cursor, Claude Code, OpenCode, Kilo Code, …) can use Kiro as its
 model.
 
-```mermaid
-flowchart LR
-    A["Your AI tools<br/>(OpenAI / Anthropic / ACP)"] -->|http://localhost:8787| B["Kiro-API V3<br/>(pool of kiro-cli workers)"]
-    B -->|official kiro-cli| C["Kiro backend"]
-```
+![Kiro-API V3 system overview](docs/diagrams/system.png)
+
+<sub>Your AI tools → Kiro-API V3 (a pool of `kiro-cli` workers) → the Kiro backend, all via the official CLI.</sub>
 
 ## What it's for
 
