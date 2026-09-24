@@ -156,6 +156,7 @@ kiro-api serve            # start the HTTP service (default command; used by sys
     --log-format <text|json>
 
 kiro-api login                # run kiro-cli device-flow login; print URL+code; optional xdg-open
+kiro-api doctor               # pre-flight check: kiro-cli present, logged in, ACP path, bind free, config sane
 kiro-api status               # human-readable: auth state, pool, workers, endpoints, health
 kiro-api stats [--json]       # machine-readable metrics for scripting
 kiro-api config [get|set ...] # show/edit effective config (precedence-aware)
@@ -182,7 +183,8 @@ kiro-api version              # kiro-api + kiro-cli versions
 | `POST /v1/messages/count_tokens` | Anthropic token estimate |
 | `POST /acp/chat`, `POST /acp/chat/stream` | Native ACP |
 | `GET /health`, `GET /ready` | Liveness / readiness |
-| `GET /stats`, `WS /ws/stats` | Metrics (tray + scripting) |
+| `GET /stats`, `WS /ws/stats` | JSON metrics snapshot + live stream (tray + scripting) |
+| `GET /metrics` | Prometheus text-exposition metrics (counters + gauges) |
 | `POST /admin/login`, `GET /admin/login/status` | Device-flow login trigger/poll (localhost) |
 
 MCP servers declared by a harness are discovered and forwarded to `kiro-cli` on `session/new` (passthrough; the gateway never executes tools itself).
@@ -206,7 +208,7 @@ MCP servers declared by a harness are discovered and forwarded to `kiro-cli` on 
 - Clean coordinated shutdown / in-flight drain.
 - `kiro-cli whoami` login probe → folded into AuthManager.
 - Config-via-env + `.env` persistence → generalized to CLI>env>file precedence.
-- `/health`, `/stats`, `/ws/stats`.
+- `/health`, `/stats`, `/metrics`, `/ws/stats`.
 - Tray status dots + copy-endpoints (now read-only, all protocols).
 
 **Remove:**
@@ -257,7 +259,7 @@ kiro-api-docker/               (repo; V3 lives alongside, old app/ removed at th
 │   │   ├── openai.py          # /v1/chat/completions, /v1/responses, /v1/models
 │   │   ├── anthropic.py       # /v1/messages, count_tokens
 │   │   ├── acp.py             # /acp/chat[/stream]
-│   │   ├── control.py         # /health, /ready, /stats, /ws/stats
+│   │   ├── control.py         # /health, /ready, /stats, /metrics, /ws/stats
 │   │   └── admin.py           # /admin/login[/status]
 │   ├── shims/                 # request/response translation per protocol
 │   ├── streaming.py           # SSE builders + keepalives

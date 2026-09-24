@@ -17,6 +17,6 @@ flowchart TB
     SVC -->|reads| CREDS
     SVC -->|logs| JOURNAL
     TRAY -->|GET /stats| SVC
-    CLI -->|GET /health /stats| SVC
+    CLI -->|GET /health /stats /metrics| SVC
     NET -->|HTTP| SVC
     systemd -->|restart on crash / watchdog timeout| SVC

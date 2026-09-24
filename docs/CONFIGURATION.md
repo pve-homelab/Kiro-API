@@ -83,6 +83,7 @@ kiro-api config
 | `KIRO_ACP_ENGINE` | `v2` | `kiro-cli acp` engine pin. Keep `v2` (v3 needs host-mediated auth not implemented). |
 | `KIRO_ACP_WORKSPACE` | *(process cwd)* | Fallback working directory for sessions. |
 | `KIRO_ACP_TRUST_TOOLS` | `true` | Auto-approve `kiro-cli`'s built-in tool runs (file edits, commands). `false` = answer-only. |
+| `KIRO_ACP_EFFORT` | *(unset)* | Service-wide default reasoning effort: `low`/`medium`/`high`/`xhigh`/`max`. Overridden per-request by `X-Kiro-Effort` header or body field. |
 | `KIRO_ACP_SURFACE_THINKING` | `true` | Surface reasoning/tool activity in each API's native reasoning shape. |
 
 ### Logging
@@ -125,7 +126,7 @@ These write to the config file (default `~/.config/kiro-api/config.env`); restar
 the service to apply. Environment variables and `serve` flags still override saved
 values at runtime.
 
-Other subcommands: `login`, `status`, `stats [--json]`, `models`, `acp`,
+Other subcommands: `login`, `doctor`, `status`, `stats [--json]`, `models`, `acp`,
 `install-service [--user] [--uninstall]`, `version`. `--help` works top-level and
 per subcommand.
 

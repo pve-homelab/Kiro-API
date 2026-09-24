@@ -118,7 +118,7 @@ single-subprocess design (no parallelism) can offer on its own.
 | `kiro_api/pool.py` | `WorkerPool` — elastic pool + scheduler + bounded queue + idle sweep. |
 | `kiro_api/service.py` | `ShimService` — per-turn orchestration (auth gate → lease → session → stream). |
 | `kiro_api/streaming.py` | SSE builders for OpenAI/Anthropic + keepalive heartbeats. |
-| `kiro_api/routes/` | Protocol route shims: `openai`, `anthropic`, `acp`, `control` (`/health`, `/ready`, `/stats`), `admin` (login). |
+| `kiro_api/routes/` | Protocol route shims: `openai`, `anthropic`, `acp`, `control` (`/health`, `/ready`, `/stats`, `/metrics`, `/ws/stats`), `admin` (login). |
 | `kiro_api/errors.py` | Error taxonomy → native OpenAI/Anthropic error envelopes. |
 | `kiro_api/install.py` | systemd unit installer (`Type=notify`, watchdog, restart). |
 | `kiro_api/sdnotify.py` | Minimal `sd_notify` (readiness + watchdog), no external dependency. |
